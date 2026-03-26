@@ -1,6 +1,8 @@
-# src/__init__.py
 """
-Основной пакет src — содержит конфигурацию, базу данных и логику RAG.
+src/__init__.py
+
+Главный инициализатор пакета src.
+Здесь мы собираем всё самое нужное из модулей, чтобы удобно импортировать в других файлах.
 """
 
 from .config import settings
@@ -14,9 +16,10 @@ from .gigachat import (
     generate_with_gigachat,
     get_gigachat_client,
     get_available_models,
-    display_models
+    get_reranker_options,      # ← новая функция
 )
 
+# Что доступно при импорте from src import ...
 __all__ = [
     "settings",
     "get_db_connection",
@@ -26,5 +29,5 @@ __all__ = [
     "generate_with_gigachat",
     "get_gigachat_client",
     "get_available_models",
-    "display_models",
+    "get_reranker_options",
 ]

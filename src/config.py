@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     RERANKER_TYPE: Literal["llm", "cross_encoder"] = "llm"
     RERANK_CANDIDATES: int = 15
     RERANK_TOP_N: int = 5
-    CROSS_ENCODER_MODEL: str = "BAAI/bge-reranker-large"
+    CROSS_ENCODER_MODEL: str = "BAAI/bge-reranker-tiny"
 
     # ==================== PostgreSQL ====================
     POSTGRES_HOST: str = "db"

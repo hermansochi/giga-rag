@@ -1,36 +1,79 @@
-# pages/1_Чат.py
+"""
+pages/1_Чат.py
+
+Главный чат-интерфейс RAG-системы на GigaChat.
+
+Изменения в этой версии:
+- Убраны смайлики из спиннеров (теперь чистый текст)
+- Заголовок страницы: просто "💬 Чат"
+- Клиент GigaChat создаётся тихо (без сообщений)
+- Реальные метрики токенов в обоих режимах
+"""
+
 import streamlit as st
-from src.gigachat import generate_with_gigachat, get_available_models
+from typing import Optional
+
+from src.gigachat import (
+    generate_with_gigachat,
+    get_available_models,
+    get_reranker_options
+)
 from src.config import settings
 
-st.set_page_config(page_title="Чат", page_icon="🧠", layout="wide")
 
-st.title("💬 Чат с документами")
+st.set_page_config(
+    page_title="Чат",
+    page_icon="🧠",
+    layout="wide"
+)
 
-# Боковая панель
+st.title("💬 Чат")
+
+
 with st.sidebar:
-    st.header("Настройки чата")
+    st.header("⚙️ Настройки чата")
     
-    # Чекбокс "Использовать RAG" — теперь вверху и по умолчанию выключен
-    use_rag = st.checkbox("Использовать RAG", value=False)
-    
-    model_name = st.selectbox(
-        "Модель GigaChat",
-        options=get_available_models() or [settings.GIGACHAT_MODEL],
-        index=0
+    use_rag: bool = st.checkbox(
+        "Использовать RAG (поиск по документам)",
+        value=False,
+        help="Если выключено — модель отвечает только своими знаниями. "
+             "Если включено — ищет информацию в загруженных документах."
     )
     
-    reranker_options = {
-        "llm": "LLM-реранкинг (GigaChat)",
-        "cross_encoder": "Cross-Encoder"
-    }
+    available_models: list[str] = get_available_models() or [settings.GIGACHAT_MODEL]
     
-    selected_reranker = st.selectbox(
+    # Умный выбор модели по умолчанию — GigaChat-2-Max
+    default_index = 0
+    try:
+        if "GigaChat-2-Max" in available_models:
+            default_index = available_models.index("GigaChat-2-Max")
+        elif any("GigaChat-2-Max" in model for model in available_models):
+            for i, model in enumerate(available_models):
+                if "GigaChat-2-Max" in model:
+                    default_index = i
+                    break
+    except Exception:
+        default_index = 0
+
+    model_name: str = st.selectbox(
+        "Модель GigaChat",
+        options=available_models,
+        index=default_index,
+        help="По умолчанию выбрана самая мощная модель — GigaChat-2-Max"
+    )
+    
+    reranker_options = get_reranker_options()
+    
+    selected_reranker: str = st.selectbox(
         "Тип реранкинга",
         options=list(reranker_options.keys()),
         format_func=lambda x: reranker_options[x],
-        index=0 if settings.RERANKER_TYPE == "llm" else 1
+        index=0,
+        help="Пока лучше оставлять 'Без реранкера'"
     )
+
+    st.caption(f"Эмбеддинг модель: **{settings.EMBEDDING_MODEL}**")
+
 
 # История чата
 if "messages" not in st.session_state:
@@ -40,58 +83,26 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"], unsafe_allow_html=True)
 
-# Поле ввода
-if prompt := st.chat_input("Задайте вопрос по документам..."):
+
+# Обработка нового вопроса
+if prompt := st.chat_input("Задайте вопрос..."):
+    
     st.session_state.messages.append({"role": "user", "content": prompt})
     
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Анализирую документы..." if use_rag else "Генерация ответа..."):
-            if not use_rag:
-                # При отключённом RAG — только простой ответ
-                simple_response = generate_with_gigachat(
-                    prompt=prompt,
-                    model_name=model_name,
-                    reranker_override=None  # Отключаем реранкинг
-                )
-                # Извлекаем только секцию "Ответ без контекста"
-                if "### 🤖 Ответ без контекста" in simple_response:
-                    start = simple_response.find("### 🤖 Ответ без контекста") + len("### 🤖 Ответ без контекста")
-                    end = simple_response.find("---") if "---" in simple_response else len(simple_response)
-                    answer = simple_response[start:end].strip()
-                else:
-                    answer = simple_response
-                
-                # Убираем заголовок "Ответ без контекста"
-                final_response = answer
-                
-                # Используем реальные токены из глобальных переменных
-                global simple_answer_tokens, prompt_tokens, completion_tokens
-                if 'simple_answer_tokens' not in globals():
-                    simple_answer_tokens = 0
-                if 'prompt_tokens' not in globals():
-                    prompt_tokens = 0
-                if 'completion_tokens' not in globals():
-                    completion_tokens = 0
-                    
-                total_tokens = simple_answer_tokens
-                
-                # Показываем метрики с реальными значениями
-                metrics_html = f"<div style='color: #666666; font-size: 0.78em; margin-top: 12px;'>\n    ⏱ Время: <b>0.50 сек</b> &nbsp;&nbsp;&nbsp; \n    📊 Токены: <b>{total_tokens}</b> \n    (prompt: {prompt_tokens} | completion: {completion_tokens})\n</div>"
-                final_response += "\n\n" + metrics_html
-                
-                response = final_response
-            else:
-                # RAG включён — полный ответ
-                response = generate_with_gigachat(
-                    prompt=prompt,
-                    model_name=model_name,
-                    reranker_override=selected_reranker
-                )
+        with st.spinner(
+            "Анализирую документы..." if use_rag else "Думаю над ответом..."
+        ):
+            response = generate_with_gigachat(
+                prompt=prompt,
+                model_name=model_name,
+                use_rag=use_rag,
+                reranker_type=selected_reranker if use_rag else None
+            )
             
             st.markdown(response, unsafe_allow_html=True)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
-

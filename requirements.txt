@@ -6,3 +6,4 @@ pydantic-settings
 streamlit
 gigachat
 spacy>=3.7.0
+minio

@@ -1,20 +1,53 @@
-# pages/2_Загрузить_файл.py
+"""
+pages/2_Загрузить_файл.py
+
+Загрузка документов в RAG с сохранением оригиналов в MinIO (S3).
+Если файл PDF — сохраняем и оригинальный PDF, и извлечённый текст.
+"""
+
 import streamlit as st
 import time
 import hashlib
+import io
 from typing import List
 
 from src.config import settings
 from src.database import save_chunks
 from src.gigachat import get_gigachat_client
-from src.document.parser import parse_document, get_supported_extensions
+from src.document.parser import parse_document
 from src.document.chunker import smart_chunk
+
+# MinIO
+from minio import Minio
 
 
 st.set_page_config(page_title="Загрузка документов", page_icon="📤", layout="wide")
 st.title("📤 Загрузка документов в RAG")
 
 st.markdown("Поддерживаемые форматы: **PDF, TXT, CSV**")
+
+
+# ====================== MinIO клиент ======================
+@st.cache_resource
+def get_minio_client():
+    return Minio(
+        settings.MINIO_ENDPOINT,
+        access_key=settings.MINIO_ACCESS_KEY,
+        secret_key=settings.MINIO_SECRET_KEY,
+        secure=settings.MINIO_SECURE
+    )
+
+
+minio_client = get_minio_client()
+
+
+def ensure_bucket_exists():
+    """Создаёт бакет, если его нет."""
+    bucket_name = settings.MINIO_BUCKET_NAME
+    if not minio_client.bucket_exists(bucket_name):
+        minio_client.make_bucket(bucket_name)
+        st.success(f"✅ Бакет `{bucket_name}` создан в MinIO")
+
 
 # ====================== Боковая панель ======================
 with st.sidebar:
@@ -64,7 +97,7 @@ def get_embeddings_adaptive(texts: List[str], client, initial_batch_size: int):
             chunk_hash = hashlib.sha256(texts[idx].encode('utf-8')).hexdigest()[:8]
             short = texts[idx][:280] + "..." if len(texts[idx]) > 280 else texts[idx]
             st.markdown(f"**Чанк {idx+1}** (хеш: `{chunk_hash}`)")
-            st.text_area("", value=short, height=70, disabled=True, key=f"first_{idx}_{hashlib.md5(texts[idx][:50].encode()).hexdigest()[:6]}")
+            st.text_area("", value=short, height=70, disabled=True, key=f"first_{idx}")
 
         if total > 3:
             st.markdown("**...**")
@@ -72,7 +105,7 @@ def get_embeddings_adaptive(texts: List[str], client, initial_batch_size: int):
                 chunk_hash = hashlib.sha256(texts[idx].encode('utf-8')).hexdigest()[:8]
                 short = texts[idx][:280] + "..." if len(texts[idx]) > 280 else texts[idx]
                 st.markdown(f"**Чанк {idx+1}** (хеш: `{chunk_hash}`)")
-                st.text_area("", value=short, height=70, disabled=True, key=f"last_{idx}_{hashlib.md5(texts[idx][:50].encode()).hexdigest()[:6]}")
+                st.text_area("", value=short, height=70, disabled=True, key=f"last_{idx}")
 
     while i < total:
         current_batch = texts[i:i + batch_size]
@@ -120,29 +153,41 @@ def get_embeddings_adaptive(texts: List[str], client, initial_batch_size: int):
 # ====================== Основная логика ======================
 uploaded_files = st.file_uploader(
     "Выберите файлы",
-    type=["pdf", "txt", "csv"],
+    type=["pdf", "txt", "csv", "json","jsonl"],
     accept_multiple_files=True
 )
 
 if uploaded_files:
     if st.button("🚀 Обработать и сохранить в базу", type="primary", use_container_width=True):
+        ensure_bucket_exists()   # создаём бакет, если нужно
         client = get_gigachat_client()
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         total_files = len(uploaded_files)
         success_count = 0
-        skipped_count = 0
 
         for idx, uploaded_file in enumerate(uploaded_files):
             try:
                 status_text.text(f"📄 Обрабатываю: **{uploaded_file.name}** ({idx+1}/{total_files})")
 
                 file_bytes = uploaded_file.read()
-                pages = parse_document(file_bytes, uploaded_file.name)
+                filename = uploaded_file.name
+
+                # 1. Сохраняем оригинальный файл в MinIO
+                minio_client.put_object(
+                    bucket_name=settings.MINIO_BUCKET_NAME,
+                    object_name=filename,
+                    data=io.BytesIO(file_bytes),
+                    length=len(file_bytes),
+                    content_type=uploaded_file.type or "application/octet-stream"
+                )
+
+                # 2. Парсим документ
+                pages = parse_document(file_bytes, filename)
 
                 if not pages:
-                    st.warning(f"Не удалось извлечь текст из {uploaded_file.name}")
+                    st.warning(f"Не удалось извлечь текст из {filename}")
                     continue
 
                 all_chunks = []
@@ -154,10 +199,11 @@ if uploaded_files:
                     for chunk_text in chunks:
                         all_metadata.append({
                             "page_number": page_num,
-                            "original_filename": uploaded_file.name,
+                            "original_filename": filename,
                             "document_type": document_type,
                             "upload_timestamp": time.time(),
-                            "chunk_length": len(chunk_text)
+                            "chunk_length": len(chunk_text),
+                            "minio_path": filename   # ссылка на оригинал в MinIO
                         })
 
                 if not all_chunks:
@@ -167,12 +213,12 @@ if uploaded_files:
                 embeddings = get_embeddings_adaptive(all_chunks, client, batch_size)
 
                 if not embeddings or len(embeddings) != len(all_chunks):
-                    st.error(f"Не удалось получить эмбеддинги для {uploaded_file.name}")
+                    st.error(f"Не удалось получить эмбеддинги для {filename}")
                     continue
 
-                # Сохранение
+                # 3. Сохранение чанков в БД
                 doc_id = save_chunks(
-                    filename=uploaded_file.name,
+                    filename=filename,
                     chunks=all_chunks,
                     embeddings=embeddings,
                     metadata_list=all_metadata,
@@ -181,18 +227,18 @@ if uploaded_files:
 
                 if doc_id:
                     success_count += 1
+                    st.success(f"✅ Файл `{filename}` успешно сохранён в MinIO и базу")
 
             except Exception as e:
                 st.error(f"❌ Ошибка при обработке {uploaded_file.name}: {e}")
 
             progress_bar.progress((idx + 1) / total_files)
 
-        # Финальное сообщение
         if success_count > 0:
             st.success(f"🎉 Загрузка завершена! Успешно обработано **{success_count}** из {total_files} файлов.")
             st.balloons()
         else:
-            st.info(f"ℹ️ Загрузка не требуется. Все чанки из {total_files} файлов уже существуют в базе.")
+            st.info("Все чанки уже существовали в базе.")
 
 st.divider()
 st.caption("💡 Размер пакета эмбеддингов можно регулировать в боковой панели.")

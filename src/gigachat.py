@@ -1,62 +1,56 @@
 """
-Модуль для работы с GigaChat: эмбеддинги, чат, векторный поиск.
-Чистая версия без реранкинга, с фокусом на стабильность и правильную работу.
+src/gigachat.py
+
+Модуль для работы с GigaChat.
+Исправлено сохранение баланса: объект Balance преобразуется в dict.
 """
 
+from typing import List, Optional, Tuple, Dict, Any
 import time
-from typing import List, Tuple, Optional
 
+import streamlit as st
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
-import streamlit as st
 
-from .config import settings
-from .database import get_db_connection, log_token_usage
+from src.config import settings
+from src.database import get_db_connection, log_token_usage
 
 
-def get_gigachat_client():
-    """
-    Кэшированный клиент GigaChat с правильной передачей токена.
-    """
-    try:
-        # Важно: credentials должен быть именно строкой с токеном, а не путём к файлу
-        return GigaChat(
-            credentials=settings.GIGACHAT_API_KEY.strip(),
-            scope=settings.GIGACHAT_SCOPE,
-            verify_ssl_certs=False,
-            timeout=60,
-        )
-    except Exception as e:
-        st.error(f"❌ Не удалось инициализировать GigaChat клиент: {e}")
-        st.stop()
+def get_gigachat_client() -> GigaChat:
+    if "gigachat_client" not in st.session_state:
+        try:
+            st.session_state.gigachat_client = GigaChat(
+                credentials=settings.GIGACHAT_API_KEY.strip(),
+                scope=settings.GIGACHAT_SCOPE,
+                verify_ssl_certs=False,
+                timeout=90,
+            )
+        except Exception as e:
+            st.error(f"❌ Не удалось создать клиент GigaChat: {e}")
+            st.stop()
+    return st.session_state.gigachat_client
 
 
 def get_available_models() -> List[str]:
-    """Возвращает список доступных моделей GigaChat."""
     try:
         client = get_gigachat_client()
         response = client.get_models()
-        return sorted([model.id for model in response.data]) if response.data else []
-    except Exception:
-        return []
+        if response and response.data:
+            return sorted([getattr(m, 'id_', getattr(m, 'id', str(m))) for m in response.data])
+        return [settings.GIGACHAT_MODEL]
+    except:
+        return [settings.GIGACHAT_MODEL]
 
 
-def display_models(models: List[str], selected_model: str = None):
-    """Отображает доступные модели в Streamlit."""
-    if not models:
-        st.error("❌ Не удалось получить список моделей GigaChat")
-        return
-
-    st.write("**Доступные модели GigaChat:**")
-    for model in models:
-        if model == selected_model:
-            st.markdown(f"- `{model}` ✅ (выбрана)")
-        else:
-            st.markdown(f"- `{model}`")
+def get_reranker_options() -> dict:
+    return {
+        "none": "Без реранкера (быстрее)",
+        "llm": "LLM-реранкинг (через GigaChat)",
+        "cross_encoder": "Cross-Encoder"
+    }
 
 
-def find_relevant_chunks(query: str, top_k: int = 15) -> List[Tuple]:
-    """Векторный поиск чанков."""
+def find_relevant_chunks(query: str, top_k: int = 15) -> List:
     client = get_gigachat_client()
     try:
         emb_response = client.embeddings(model=settings.EMBEDDING_MODEL, texts=[query])
@@ -65,168 +59,90 @@ def find_relevant_chunks(query: str, top_k: int = 15) -> List[Tuple]:
         conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT chunk_text, filename, chunk_index,
-                       embedding <-> %s::VECTOR AS distance
+                SELECT chunk_text, filename, chunk_index, embedding <-> %s::VECTOR AS distance
                 FROM document_chunks
                 ORDER BY distance
                 LIMIT %s
             """, (str(query_embedding), top_k))
             return cur.fetchall()
     except Exception as e:
-        st.error(f"❌ Ошибка поиска: {e}")
+        st.error(f"❌ Ошибка векторного поиска: {e}")
         return []
 
 
-# ====================== Основная функция ======================
-def generate_with_gigachat(
-    prompt: str,
-    model_name: Optional[str] = None,
-    reranker_override: Optional[str] = None,
-) -> str:
-    """
-    Генерирует ответ с RAG (простой векторный поиск, без реранкинга).
+def get_balance_info(client: GigaChat) -> Optional[Dict]:
+    """Получает баланс и преобразует его в обычный словарь."""
+    try:
+        balance_obj = None
 
-    Args:
-        prompt: вопрос пользователя
-        model_name: модель (по умолчанию из config)
-        reranker_override: игнорируется, реранкинг отключён
-    """
-    model_name = model_name or settings.GIGACHAT_MODEL
-    client = get_gigachat_client()
+        # Пробуем разные способы получения баланса
+        if hasattr(client, 'get_balance'):
+            balance_obj = client.get_balance()
+        elif hasattr(client, 'balance'):
+            balance_obj = client.balance
+        elif hasattr(client, 'get_account_balance'):
+            balance_obj = client.get_account_balance()
 
-    start_time = time.time()
+        if balance_obj is None:
+            return None
 
-    # ── 1. Простой ответ без RAG ─────────────────────────────────────
-    simple_answer = _get_simple_response(client, prompt, model_name)
+        # Преобразуем объект Balance в словарь
+        if hasattr(balance_obj, 'model_dump'):
+            # Современный pydantic v2 стиль
+            return balance_obj.model_dump()
+        elif hasattr(balance_obj, 'dict'):
+            # Старый pydantic v1 стиль
+            return balance_obj.dict()
+        else:
+            # Если ничего не помогло — пытаемся через __dict__
+            return vars(balance_obj) if hasattr(balance_obj, '__dict__') else str(balance_obj)
 
-    # ── 2. RAG с векторным поиском ────────────────────────────────────
-    relevant_chunks = find_relevant_chunks(prompt, top_k=settings.RERANK_CANDIDATES)
-
-    rag_answer = _get_rag_response(client, prompt, relevant_chunks, model_name)
-    duration = round(time.time() - start_time, 2)  # время в секундах
-
-    # ── 3. Финальный ответ + метрики ─────────────────────────────────
-    final_response = f"""
-### 🤖 Ответ без контекста
-{simple_answer}
-
----\n
-### 🧠 Ответ с RAG (по документам)
-{rag_answer}
-"""
-
-    # Формирование списка источников с проверкой на RealDictRow
-    if relevant_chunks:
-        sources = []
-        for i, row in enumerate(relevant_chunks):
-            # Проверяем, что row поддерживает индексацию по ключу
-            if not hasattr(row, '__getitem__'):
-                st.warning(f"Пропущен чанк {i}: объект не поддерживает доступ по ключу (row={row})")
-                continue
-
-            # Проверяем наличие обязательных полей
-            required_keys = ['filename', 'chunk_index', 'chunk_text']
-            if not all(key in row for key in required_keys):
-                missing = [key for key in required_keys if key not in row]
-                st.warning(f"Пропущен чанк {i}: отсутствуют поля {missing} (row={row})")
-                continue
-
-            filename = str(row['filename']) if row['filename'] is not None else "неизвестный_файл"
-            chunk_idx = str(row['chunk_index']) if row['chunk_index'] is not None else "?"
-
-            # Обработка расстояния
-            if 'distance' in row and row['distance'] not in (None, '', 'None', 'none'):
-                try:
-                    dist = float(row['distance'])
-                    sources.append(f"- `{filename}` (чанк {chunk_idx}, dist={dist:.4f})")
-                    continue
-                except (ValueError, TypeError):
-                    pass  # Переход к упрощённому формату
-
-            sources.append(f"- `{filename}` (чанк {chunk_idx})")
-
-        if sources:
-            final_response += f"\n\n📚 **Источники:**\n" + "\n".join(sources[:6])
-
-    # Метрики внизу мелким серым текстом
-    global simple_answer_tokens, rag_answer_tokens, prompt_tokens, completion_tokens
-    if 'simple_answer_tokens' not in globals():
-        simple_answer_tokens = 0
-    if 'rag_answer_tokens' not in globals():
-        rag_answer_tokens = 0
-    if 'prompt_tokens' not in globals():
-        prompt_tokens = 0
-    if 'completion_tokens' not in globals():
-        completion_tokens = 0
-
-    metrics_html = (
-        f"<div style='color: #666666; font-size: 0.78em; margin-top: 12px;'>\n"
-        f"    ⏱ Время: <b>{duration} сек</b> &nbsp;&nbsp;&nbsp; \n"
-        f"    📊 Токены: <b>{simple_answer_tokens + rag_answer_tokens}</b> \n"
-        f"    (prompt: {prompt_tokens} | completion: {completion_tokens})\n"
-        f"</div>"
-    )
-    final_response += metrics_html
-
-    return final_response.strip()
+    except Exception as e:
+        st.warning(f"Не удалось получить баланс: {e}")
+        return None
 
 
-# ====================== Вспомогательные функции ======================
-def _get_simple_response(client, prompt: str, model_name: str) -> str:
-    """Простой запрос без RAG."""
+def _get_simple_response(client: GigaChat, prompt: str, model_name: str) -> Tuple[str, int, int]:
     try:
         messages = [
-            Messages(role=MessagesRole.SYSTEM, content="Ты дружелюбный помощник. Отвечай естественно."),
+            Messages(role=MessagesRole.SYSTEM, content="Ты дружелюбный и полезный помощник."),
             Messages(role=MessagesRole.USER, content=prompt)
         ]
 
         resp = client.chat(Chat(messages=messages, model=model_name))
         answer = resp.choices[0].message.content.strip()
 
-        # Логирование токенов
+        # Получаем баланс отдельным методом
+        balance_info = get_balance_info(client)
+
         log_token_usage(
-            total_used=resp.usage.total_tokens,
-            prompt_used=resp.usage.prompt_tokens,
-            completion_used=resp.usage.completion_tokens,
+            total_used=getattr(resp.usage, 'total_tokens', 0),
+            prompt_used=getattr(resp.usage, 'prompt_tokens', 0),
+            completion_used=getattr(resp.usage, 'completion_tokens', 0),
             precached_prompt_used=getattr(resp.usage, 'precached_prompt_tokens', 0),
-            balance_entries=None
+            balance_entries=balance_info
         )
 
-        return answer
+        return answer, getattr(resp.usage, 'prompt_tokens', 0), getattr(resp.usage, 'completion_tokens', 0)
 
     except Exception as e:
         st.warning(f"⚠️ Ошибка простого запроса: {e}")
-        return "Не удалось получить ответ без контекста."
+        return "Не удалось сгенерировать ответ 😔", 0, 0
 
 
-def _get_rag_response(client, prompt: str, relevant_chunks: List[Tuple], model_name: str) -> str:
-    """RAG-ответ с правильным логированием токенов и метриками."""
+def _get_rag_response(client: GigaChat, prompt: str, relevant_chunks: List, model_name: str) -> Tuple[str, int, int]:
     if not relevant_chunks:
-        return "В предоставленных материалах информация по этому вопросу не найдена."
+        return "В базе документов пока нет информации по этому вопросу.", 0, 0
 
     context_parts = []
     for i, row in enumerate(relevant_chunks, 1):
-        if not hasattr(row, '__getitem__'):
-            continue
-        text = str(row['chunk_text']).strip() if row['chunk_text'] else ""
-        filename = str(row['filename']) if row['filename'] else "неизвестный_файл"
-        idx = str(row['chunk_index']) if row['chunk_index'] is not None else "?"
+        text = str(row.get("chunk_text", "")).strip()
+        filename = str(row.get("filename", "неизвестный_файл"))
+        chunk_idx = str(row.get("chunk_index", "?"))
+        distance = float(row.get("distance", 0.0))
+        context_parts.append(f"--- Источник [{i}] | {filename} | чанк {chunk_idx} | dist {distance:.4f} ---\n{text}")
 
-        dist_value = 0.0
-        if 'distance' in row and row['distance'] not in (None, '', 'None', 'none'):
-            try:
-                dist_value = float(row['distance'])
-            except (ValueError, TypeError):
-                dist_value = 0.0
-
-        context_parts.append(
-            f"--- Источник [{i}] | {filename} | чанк {idx} | dist {dist_value:.4f} ---\n{text}"
-        )
-
-    system_prompt = (
-        "Ты — точный помощник. Отвечай строго по документам. "
-        "Если есть хоть частичная релевантность — используй её."
-    )
+    system_prompt = "Ты — точный помощник. Отвечай строго по документам."
 
     user_msg = "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\nОтветь максимально полезно:"
 
@@ -238,27 +154,55 @@ def _get_rag_response(client, prompt: str, relevant_chunks: List[Tuple], model_n
                     Messages(role=MessagesRole.USER, content=user_msg)
                 ],
                 model=model_name,
-                temperature=0.3
+                temperature=0.3,
             )
         )
+
         answer = resp.choices[0].message.content.strip()
 
+        # Получаем баланс отдельным методом
+        balance_info = get_balance_info(client)
+
         log_token_usage(
-            total_used=resp.usage.total_tokens,
-            prompt_used=resp.usage.prompt_tokens,
-            completion_used=resp.usage.completion_tokens,
+            total_used=getattr(resp.usage, 'total_tokens', 0),
+            prompt_used=getattr(resp.usage, 'prompt_tokens', 0),
+            completion_used=getattr(resp.usage, 'completion_tokens', 0),
             precached_prompt_used=getattr(resp.usage, 'precached_prompt_tokens', 0),
-            balance_entries=None
+            balance_entries=balance_info
         )
 
-        # Обновляем глобальные переменные для отображения метрик
-        global rag_answer_tokens, prompt_tokens, completion_tokens
-        rag_answer_tokens = resp.usage.total_tokens
-        prompt_tokens = resp.usage.prompt_tokens
-        completion_tokens = resp.usage.completion_tokens
-
-        return answer
+        return answer, getattr(resp.usage, 'prompt_tokens', 0), getattr(resp.usage, 'completion_tokens', 0)
 
     except Exception as e:
         st.warning(f"⚠️ Ошибка RAG-запроса: {e}")
-        return "Не удалось получить ответ с документами."
+        return "Не удалось получить ответ на основе документов 😔", 0, 0
+
+
+def generate_with_gigachat(
+    prompt: str,
+    model_name: Optional[str] = None,
+    use_rag: bool = False,
+    reranker_type: Optional[str] = None,
+) -> str:
+    model_name = model_name or settings.GIGACHAT_MODEL
+    client = get_gigachat_client()
+    start_time = time.time()
+
+    if not use_rag:
+        answer, prompt_tokens, completion_tokens = _get_simple_response(client, prompt, model_name)
+    else:
+        relevant_chunks = find_relevant_chunks(prompt)
+        answer, prompt_tokens, completion_tokens = _get_rag_response(client, prompt, relevant_chunks, model_name)
+
+    duration = round(time.time() - start_time, 2)
+    total_tokens = prompt_tokens + completion_tokens
+
+    metrics_html = f"""
+<div style='color:#666; font-size:0.78em; margin-top:14px; padding:10px; background:#f8f9fa; border-radius:8px;'>
+    ⏱ Время: <b>{duration} сек</b><br>
+    📊 Токены: <b>{total_tokens:,}</b> 
+    (prompt: {prompt_tokens:,} | completion: {completion_tokens:,})
+</div>
+"""
+
+    return f"{answer}\n\n{metrics_html}".strip()
