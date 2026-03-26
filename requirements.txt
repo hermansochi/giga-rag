@@ -1,0 +1,8 @@
+pymupdf
+sentence-transformers
+plotly
+psycopg2-binary
+pydantic-settings
+streamlit
+gigachat
+spacy>=3.7.0
