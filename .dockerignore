@@ -1,5 +1,4 @@
 # Secrets
-.env
 gigachat.token
 *.token
 
@@ -21,4 +20,3 @@ venv/
 Thumbs.db
 archive/
 guides/
-model_data/
