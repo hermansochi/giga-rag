@@ -1,8 +1,8 @@
 """
 src/rag/reranker.py
 
-Модуль реранкинга чанков для RAG.
-Поддерживает cross_encoder (из /app/model_data) и llm (через GigaChat).
+Модуль реранкинга чанков.
+Полностью переведён на DTO (RerankCandidate → RerankedResult).
 """
 
 from typing import List, Tuple, Dict, Any, Optional
@@ -10,6 +10,7 @@ import streamlit as st
 import re
 
 from ..config import settings
+from src.models import RerankCandidate, RerankedResult
 
 
 def get_gigachat_client():
@@ -45,14 +46,11 @@ def rerank_chunks(
     chunks: List[Tuple[str, Dict[str, Any]]],
     reranker_type: Optional[str] = None,
     top_n: Optional[int] = None,
-) -> List[Tuple[str, Dict[str, Any]]]:
+) -> List[RerankedResult]:
     """Главная функция реранкинга.
     
-    Args:
-        query: вопрос пользователя
-        chunks: список (chunk_text, metadata)
-        reranker_type: "llm", "cross_encoder" или None
-        top_n: сколько лучших чанков вернуть
+    Принимает List[Tuple] для совместимости со старым вызовом из gigachat.py,
+    но внутри сразу преобразует в RerankCandidate.
     """
     if not chunks:
         return []
@@ -62,74 +60,86 @@ def rerank_chunks(
 
     use_type = reranker_type or settings.RERANKER_TYPE
 
+    # Преобразуем входные данные в RerankCandidate
+    candidates: List[RerankCandidate] = [
+        RerankCandidate(text=text, metadata=meta)
+        for text, meta in chunks
+    ]
+
     if use_type == "cross_encoder":
-        return _rerank_cross_encoder(query, chunks, top_n)
+        return _rerank_cross_encoder(query, candidates, top_n)
     elif use_type == "llm":
-        return _rerank_with_llm(query, chunks, top_n)
+        return _rerank_with_llm(query, candidates, top_n)
     else:
-        st.info("ℹ️ Реранкинг отключён (none). Возвращаем топ по векторному поиску.")
-        return chunks[:top_n]
+        st.info("ℹ️ Реранкинг отключён (none). Возвращаем топ чанков.")
+        return [
+            RerankedResult(text=c.text, metadata=c.metadata)
+            for c in candidates[:top_n]
+        ]
 
 
 def _rerank_cross_encoder(
-    query: str, 
-    chunks: List[Tuple[str, Dict[str, Any]]], 
+    query: str,
+    candidates: List[RerankCandidate],
     top_n: int
-) -> List[Tuple[str, Dict[str, Any]]]:
-    """Реранкинг через Cross-Encoder."""
+) -> List[RerankedResult]:
+    """Реранкинг через Cross-Encoder модель."""
     model = _get_cross_encoder_model()
     if model is None:
         st.warning("⚠️ Cross-Encoder недоступен.")
-        return chunks[:top_n]
+        return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates[:top_n]]
 
     try:
-        pairs = [[query, chunk[0]] for chunk in chunks]
+        pairs = [[query, c.text] for c in candidates]
         scores = model.predict(pairs, show_progress_bar=False)
 
-        ranked = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
-        return [item[0] for item in ranked[:top_n]]
+        ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+
+        return [
+            RerankedResult(
+                text=item[0].text,
+                metadata=item[0].metadata,
+                rerank_score=float(item[1])
+            )
+            for item in ranked[:top_n]
+        ]
 
     except Exception as e:
-        st.warning(f"⚠️ Ошибка Cross-Encoder: {e}")
-        return chunks[:top_n]
+        st.warning(f"⚠️ Ошибка Cross-Encoder реранкинга: {e}")
+        return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates[:top_n]]
 
 
 def _rerank_with_llm(
-    query: str, 
-    chunks: List[Tuple[str, Dict[str, Any]]], 
+    query: str,
+    candidates: List[RerankCandidate],
     top_n: int
-) -> List[Tuple[str, Dict[str, Any]]]:
-    """LLM-реранкинг через GigaChat.
-    
-    Теперь правильно импортируем Chat и Messages внутри функции.
-    """
-    if len(chunks) <= top_n:
-        return chunks
+) -> List[RerankedResult]:
+    """LLM-реранкинг через GigaChat (самый умный вариант)."""
+    if len(candidates) <= top_n:
+        return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates]
 
     try:
         client = get_gigachat_client()
 
-        # === Формируем промпт для реранкинга ===
         chunk_list = []
-        for i, (text, meta) in enumerate(chunks, 1):
-            filename = meta.get("filename", "неизвестный_файл")
-            chunk_list.append(f"Чанк №{i} (файл: {filename})\n{text[:700]}...")
+        for i, c in enumerate(candidates, 1):
+            filename = c.metadata.get("filename", "неизвестный_файл")
+            chunk_list.append(f"Чанк №{i} (файл: {filename})\n{c.text[:700]}...")
 
-        prompt = f"""Ты — эксперт по оценке релевантности.
+        prompt = f"""Ты — эксперт по оценке релевантности текста.
 Вопрос пользователя: "{query}"
 
-Ниже {len(chunks)} фрагментов из документов.
+Ниже {len(candidates)} фрагментов из документов.
 Верни только JSON-массив с номерами чанков в порядке убывания релевантности.
 
-Пример: [3, 1, 5, 2, 4]
+Пример ответа: [3, 1, 5, 2, 4]
 
 Фрагменты:
 
 """ + "\n\n".join(chunk_list)
 
-        st.info(f"🔄 LLM-реранкинг: оцениваю {len(chunks)} чанков через GigaChat...")
+        st.info(f"🔄 LLM-реранкинг: оцениваю {len(candidates)} чанков...")
 
-        # === ИМПОРТ ЗДЕСЬ — это решает ошибку "name 'Chat' is not defined" ===
         from gigachat.models import Chat, Messages, MessagesRole
 
         resp = client.chat(
@@ -142,11 +152,10 @@ def _rerank_with_llm(
 
         answer = resp.choices[0].message.content.strip()
 
-        # Извлекаем номера чанков из ответа модели
+        # Извлекаем номера чанков
         indices = [int(x) - 1 for x in re.findall(r'\d+', answer) if x.isdigit()]
+        valid_indices = [i for i in indices if 0 <= i < len(candidates)]
 
-        valid_indices = [i for i in indices if 0 <= i < len(chunks)]
-        
         seen = set()
         final_order = []
         for idx in valid_indices:
@@ -155,10 +164,13 @@ def _rerank_with_llm(
                 seen.add(idx)
 
         if not final_order:
-            final_order = list(range(len(chunks)))
+            final_order = list(range(len(candidates)))
 
-        return [chunks[i] for i in final_order[:top_n]]
+        return [
+            RerankedResult(text=candidates[i].text, metadata=candidates[i].metadata)
+            for i in final_order[:top_n]
+        ]
 
     except Exception as e:
-        st.warning(f"⚠️ Ошибка LLM-реранкинга: {type(e).__name__}: {e}")
-        return chunks[:top_n]
+        st.warning(f"⚠️ Ошибка LLM-реранкинга: {e}")
+        return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates[:top_n]]
