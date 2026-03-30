@@ -87,6 +87,26 @@ def init_vector_db():
                 );
             """)
 
+            # Таблица логов
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS chat_logs (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP DEFAULT NOW(),
+                    user_message TEXT NOT NULL,
+                    assistant_response TEXT NOT NULL,
+                    model_name TEXT,
+                    use_rag BOOLEAN,
+                    reranker_type TEXT,
+                    total_tokens INTEGER,
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    response_time_sec NUMERIC(5,2),
+                    metadata JSONB DEFAULT '{}',
+                    rag_context TEXT,
+                    retrieved_chunks JSONB
+                );
+            """)
+
             # Индексы
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_chunk_hash ON document_chunks (chunk_hash);
@@ -209,11 +229,54 @@ def log_token_usage(
     except Exception as e:
         st.warning(f"⚠️ Не удалось записать лог токенов: {e}")
 
+def log_chat_interaction(
+    user_message: str,
+    assistant_response: str,
+    model_name: str,
+    use_rag: bool,
+    reranker_type: Optional[str],
+    total_tokens: int,
+    prompt_tokens: int,
+    completion_tokens: int,
+    response_time: float,
+    metadata: dict = None,
+    rag_context: Optional[str] = None,
+    retrieved_chunks: Optional[list] = None
+):
+    """Логирует взаимодействие в чате, включая RAG-контекст."""
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO chat_logs 
+                (user_message, assistant_response, model_name, use_rag, reranker_type,
+                 total_tokens, prompt_tokens, completion_tokens, response_time_sec, metadata,
+                 rag_context, retrieved_chunks)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
+            """, (
+                user_message,
+                assistant_response,
+                model_name,
+                use_rag,
+                reranker_type,
+                total_tokens,
+                prompt_tokens,
+                completion_tokens,
+                round(response_time, 2),
+                json.dumps(metadata or {}),
+                rag_context,
+                json.dumps(retrieved_chunks or [])
+            ))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"❌ Не удалось сохранить лог чата: {e}", exc_info=True)
+        st.warning("⚠️ Логирование не удалось")
 
 # ====================== Экспортируемые функции ======================
 __all__ = [
     "get_db_connection",
     "init_vector_db",
     "save_chunks",
-    "log_token_usage"
+    "log_token_usage",
+    "log_chat_interaction"
 ]

@@ -153,7 +153,7 @@ def get_embeddings_adaptive(texts: List[str], client, initial_batch_size: int):
 # ====================== Основная логика ======================
 uploaded_files = st.file_uploader(
     "Выберите файлы",
-    type=["pdf", "txt", "csv", "json","jsonl"],
+    type=["pdf", "txt", "text", "md", "csv", "json","jsonl"],
     accept_multiple_files=True
 )
 

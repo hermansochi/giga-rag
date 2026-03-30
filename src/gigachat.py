@@ -7,6 +7,7 @@ src/gigachat.py
 
 from typing import List, Optional, Tuple, Dict, Any
 import time
+import html
 
 import streamlit as st
 from gigachat import GigaChat
@@ -105,7 +106,7 @@ def get_balance_info(client: GigaChat) -> Optional[Dict]:
 def _get_simple_response(client: GigaChat, prompt: str, model_name: str) -> Tuple[str, int, int]:
     try:
         messages = [
-            Messages(role=MessagesRole.SYSTEM, content="Ты дружелюбный и полезный помощник."),
+            Messages(role=MessagesRole.SYSTEM, content=st.session_state.get("custom_base_prompt", settings.BASE_SYSTEM_PROMT)),
             Messages(role=MessagesRole.USER, content=prompt)
         ]
 
@@ -142,9 +143,10 @@ def _get_rag_response(client: GigaChat, prompt: str, relevant_chunks: List, mode
         distance = float(row.get("distance", 0.0))
         context_parts.append(f"--- Источник [{i}] | {filename} | чанк {chunk_idx} | dist {distance:.4f} ---\n{text}")
 
-    system_prompt = "Ты — точный помощник. Отвечай строго по документам."
+    system_prompt = st.session_state.get("custom_rag_prompt", settings.RAG_SYSTEM_PROMT)
 
-    user_msg = "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\nОтветь максимально полезно:"
+    rag_suffix = st.session_state.get("custom_rag_suffix", settings.RAG_PROMT_SUFFIX)
+    user_msg = "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\n{rag_suffix}:"
 
     try:
         resp = client.chat(
@@ -154,7 +156,7 @@ def _get_rag_response(client: GigaChat, prompt: str, relevant_chunks: List, mode
                     Messages(role=MessagesRole.USER, content=user_msg)
                 ],
                 model=model_name,
-                temperature=0.3,
+                temperature=st.session_state.get("custom_rag_temperature", settings.RAG_TEMPERATURE),
             )
         )
 
@@ -184,16 +186,76 @@ def generate_with_gigachat(
     use_rag: bool = False,
     reranker_type: Optional[str] = None,
 ) -> str:
+    """
+    Генерирует ответ с поддержкой RAG и отображает использованный контекст.
+    """
     model_name = model_name or settings.GIGACHAT_MODEL
     client = get_gigachat_client()
     start_time = time.time()
 
+    retrieved_chunks_log = []
+    full_context = None
+
     if not use_rag:
         answer, prompt_tokens, completion_tokens = _get_simple_response(client, prompt, model_name)
+        sources_html = ""
+        context_details = ""
     else:
         relevant_chunks = find_relevant_chunks(prompt)
+
+        # Лог для БД
+        retrieved_chunks_log = [
+            {
+                "filename": row["filename"],
+                "chunk_index": row["chunk_index"],
+                "distance": float(row["distance"]),
+                "text": row["chunk_text"]
+            }
+            for row in relevant_chunks
+        ]
+
+        # Формируем контекст (передаётся в модель)
+        context_parts = []
+        for i, row in enumerate(relevant_chunks, 1):
+            text = str(row.get("chunk_text", "")).strip()
+            filename = str(row.get("filename", "неизвестный_файл"))
+            chunk_idx = str(row.get("chunk_index", "?"))
+            distance = float(row.get("distance", 0.0))
+            context_parts.append(f"--- Источник [{i}] | {filename} | чанк {chunk_idx} | dist {distance:.4f} ---\n{text}")
+
+        rag_suffix = st.session_state.get("custom_rag_suffix", settings.RAG_PROMT_SUFFIX)
+        full_context = "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\n{rag_suffix}:"
+
         answer, prompt_tokens, completion_tokens = _get_rag_response(client, prompt, relevant_chunks, model_name)
 
+        # 🔽 Блок с источниками
+        sources_parts = []
+        for row in relevant_chunks:
+            filename = row["filename"]
+            distance = float(row["distance"])
+            sources_parts.append(f"📄 `{filename}` (расстояние: {distance:.4f})")
+
+        sources_html = ""
+        if sources_parts:
+            sources_html = f"""
+<div style='font-size:0.85em; color:#555; margin-top:16px; padding:12px; background:#f0f4f8; border-radius:8px; border-left: 4px solid #1f77b4;'>
+    <b>📚 Использованные источники:</b><br>""" + \
+            "<br>".join(sources_parts) + \
+            """
+</div>
+"""
+
+        # 🔽 Блок с контекстом (скрытый)
+        # Ограничиваем длину preview
+        preview_context = (full_context[:2000] + "...") if len(full_context) > 2000 else full_context
+        context_details = f"""
+<details style="margin-top: 16px;">
+<summary style="color:#1a73e8; cursor:pointer; font-size:0.9em;">🔍 Показать контекст, переданный в GigaChat</summary>
+<div style="margin-top:10px; padding:12px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: monospace; font-size:0.85em; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
+{html.escape(preview_context)}
+</div>
+</details>
+"""
     duration = round(time.time() - start_time, 2)
     total_tokens = prompt_tokens + completion_tokens
 
@@ -205,4 +267,28 @@ def generate_with_gigachat(
 </div>
 """
 
-    return f"{answer}\n\n{metrics_html}".strip()
+    # 🔽 Логируем в БД
+    try:
+        from src.database import log_chat_interaction
+        log_chat_interaction(
+            user_message=prompt,
+            assistant_response=answer,
+            model_name=model_name,
+            use_rag=use_rag,
+            reranker_type=reranker_type if use_rag else None,
+            total_tokens=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            response_time=duration,
+            metadata={
+                "session_id": st.session_state.get("session_id", "unknown"),
+                "page": "chat"
+            },
+            rag_context=full_context,
+            retrieved_chunks=retrieved_chunks_log
+        )
+    except Exception as e:
+        st.warning("⚠️ Не удалось сохранить лог")
+
+    # 🔽 Собираем финальный ответ
+    return f"{answer}\n\n{sources_html}\n{context_details}\n{metrics_html}".strip()

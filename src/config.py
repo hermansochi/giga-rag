@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     MINIO_BUCKET_NAME: str = "documents"
     MINIO_SECURE: bool = False
 
+    # ==================== GigaChat ====================
+    BASE_SYSTEM_PROMT: str = "Ты дружелюбный и полезный помощник."
+    RAG_SYSTEM_PROMT: str = "Ты — точный помощник. Отвечай строго по документам."
+    RAG_PROMT_SUFFIX: str = "Ответь максимально полезно"
+    BASE_TEMPERATURE: float = 0.7
+    RAG_TEMPERATURE: float = 0.3
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
