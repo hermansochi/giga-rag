@@ -276,8 +276,11 @@ def generate_with_gigachat(
 
         # 7. Формируем HTML-блоки
         sources_html = _build_sources_html(relevant_chunks)
-        context_details = _build_context_details(full_context)
-
+        context_details = _build_context_details(
+            full_context=full_context,
+            reranked_chunks=relevant_chunks,   # финальные чанки после реранкинга
+            reranker_type=reranker_type
+        )
     duration = round(time.time() - start_time, 2)
     total_tokens = prompt_tokens + completion_tokens
 
@@ -325,19 +328,44 @@ def _build_sources_html(chunks: List[DocumentChunk]) -> str:
 </div>
 """
 
-
-def _build_context_details(full_context: Optional[str]) -> str:
-    """Формирует скрытый блок с полным контекстом."""
+def _build_context_details(
+    full_context: Optional[str],
+    original_chunks: Optional[List[DocumentChunk]] = None,
+    reranked_chunks: Optional[List[DocumentChunk]] = None,
+    reranker_type: Optional[str] = None
+) -> str:
+    """Формирует детальный блок контекста с информацией о реранкинге."""
     if not full_context:
         return ""
 
-    preview_context = (full_context[:3000] + "...") if len(full_context) > 3000 else full_context
+    lines = []
+
+    if reranker_type and reranker_type != "none":
+        lines.append(f"<b>🔄 Применён реранкинг:</b> {reranker_type}")
+        lines.append("")
+
+    # Основной контекст
+    lines.append("<b>Итоговый запрос, отправленный в GigaChat:</b>")
+    lines.append("<pre style='background:#f8f9fa; padding:10px; border-radius:6px; overflow:auto;'>")
+    lines.append(html.escape(full_context))
+    lines.append("</pre>")
+
+    # Дополнительная информация о чанках (для отладки)
+    if reranked_chunks:
+        lines.append("<hr>")
+        lines.append("<b>Финальные чанки после реранкинга:</b>")
+        for i, chunk in enumerate(reranked_chunks, 1):
+            lines.append(f"• [{i}] {chunk.filename} | чанк {chunk.chunk_index} | dist {chunk.distance:.4f}")
+
+    context_html = "\n".join(lines)
 
     return f"""
 <details style="margin-top: 16px;">
-<summary style="color:#1a73e8; cursor:pointer; font-size:0.9em;">🔍 Показать контекст, переданный в GigaChat</summary>
-<div style="margin-top:10px; padding:12px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: monospace; font-size:0.85em; white-space: pre-wrap; max-height: 500px; overflow-y: auto;">
-{html.escape(preview_context)}
+<summary style="color:#1a73e8; cursor:pointer; font-size:0.9em;">
+    🔍 Показать контекст, переданный в GigaChat
+</summary>
+<div style="margin-top:10px; padding:12px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: monospace; font-size:0.85em; white-space: pre-wrap; max-height: 600px; overflow-y: auto;">
+{context_html}
 </div>
 </details>
 """

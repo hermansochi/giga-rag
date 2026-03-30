@@ -108,3 +108,26 @@ class ChatResponse:
     used_rag: bool = True
     reranker_type: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
+
+@dataclass(frozen=True)
+class ParsedDocument:
+    """Результат парсинга одного файла."""
+    filename: str
+    content: str                    # полный текст документа
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    pages: Optional[List[str]] = None
+    document_type: str = "unknown"
+
+
+@dataclass(frozen=True)
+class Chunk:
+    """Один готовый чанк после chunker."""
+    text: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    chunk_index: int = 0
+    document_filename: str = ""
+
+    @property
+    def short_text(self) -> str:
+        return self.text[:350] + "..." if len(self.text) > 350 else self.text
+    

@@ -1,7 +1,7 @@
 """
 pages/3_Мониторинг.py
 
-Мониторинг RAG-системы с новым разделом "Таблицы базы данных"
+Мониторинг RAG-системы
 """
 
 import streamlit as st
@@ -13,10 +13,6 @@ from collections import defaultdict
 
 from src.database import get_db_connection
 from src.config import settings
-
-# MinIO клиент
-from minio import Minio
-
 
 st.set_page_config(
     page_title="Мониторинг",
@@ -89,16 +85,50 @@ try:
 
     if token_data:
         df_tokens = pd.DataFrame(token_data)
-        fig_tokens = px.line(
-            df_tokens,
-            x='timestamp',
-            y=['prompt_tokens', 'completion_tokens', 'total_tokens'],
-            title="Расход токенов во времени",
+        
+        # Преобразуем timestamp и группируем по дням (чтобы график не был слишком плотным)
+        df_tokens['timestamp'] = pd.to_datetime(df_tokens['timestamp'])
+        df_tokens['date'] = df_tokens['timestamp'].dt.date   # группируем только по дате
+        
+        # Агрегируем по дням
+        daily_tokens = df_tokens.groupby('date').sum(numeric_only=True).reset_index()
+        daily_tokens = daily_tokens.sort_values('date')
+
+        st.write(f"**Количество дней с данными:** {len(daily_tokens)}")
+
+        # === STACKED BAR — надёжный вариант ===
+        fig_tokens = px.bar(
+            daily_tokens,
+            x='date',
+            y=['prompt_tokens', 'completion_tokens'],
+            title="Расход токенов по дням (stacked)",
             template="plotly_white",
-            markers=True
+            barmode='stack',
+            text_auto=True,
+            color_discrete_sequence=['#1f77b4', '#ff7f0e'],  # синий + оранжевый
+            labels={
+                "date": "Дата",
+                "value": "Количество токенов",
+                "variable": "Тип токенов"
+            }
         )
+        
+        fig_tokens.update_layout(
+            xaxis_title="Дата",
+            yaxis_title="Количество токенов",
+            legend_title="Тип токенов",
+            height=520,
+            bargap=0.05
+        )
+        
+        fig_tokens.update_xaxes(tickangle=45)
+
         st.plotly_chart(fig_tokens, use_container_width=True)
 
+        st.caption("Синий = prompt_tokens, Оранжевый = completion_tokens")
+    else:
+        st.warning("Нет данных для построения графика токенов.")
+    
     st.subheader("📉 Изменение баланса по моделям")
 
     if balance_by_model:
@@ -123,164 +153,6 @@ except Exception as e:
     st.error(f"Ошибка загрузки логов токенов: {e}")
 
 st.divider()
-
-# ====================== 2. MINIO — ХРАНИЛИЩЕ ======================
-st.subheader("📦 MinIO — Хранилище оригинальных файлов")
-
-try:
-    minio_client = Minio(
-        settings.MINIO_ENDPOINT,
-        access_key=settings.MINIO_ACCESS_KEY,
-        secret_key=settings.MINIO_SECRET_KEY,
-        secure=settings.MINIO_SECURE
-    )
-
-    bucket_name = settings.MINIO_BUCKET_NAME
-
-    if not minio_client.bucket_exists(bucket_name):
-        st.warning(f"⚠️ Бакет `{bucket_name}` не найден.")
-        if st.button("Создать бакет documents"):
-            try:
-                minio_client.make_bucket(bucket_name)
-                st.success(f"✅ Бакет `{bucket_name}` создан!")
-                st.rerun()
-            except Exception as create_e:
-                st.error(f"Не удалось создать бакет: {create_e}")
-    else:
-        objects = list(minio_client.list_objects(bucket_name, recursive=True))
-
-        if objects:
-            file_list = []
-            total_size = 0
-
-            for obj in objects:
-                size_mb = obj.size / (1024 * 1024)
-                total_size += obj.size
-                file_list.append({
-                    "Имя файла": obj.object_name,
-                    "Размер (МБ)": round(size_mb, 2),
-                    "Дата изменения": obj.last_modified.strftime("%Y-%m-%d %H:%M") if obj.last_modified else "—"
-                })
-
-            df_files = pd.DataFrame(file_list)
-
-            col1, col2 = st.columns(2)
-            col1.metric("Файлов в хранилище", len(objects))
-            col2.metric("Общий объём", f"{total_size / (1024*1024):.2f} МБ")
-
-            st.dataframe(df_files, use_container_width=True, hide_index=True)
-
-            if len(df_files) > 1:
-                fig = px.bar(
-                    df_files.nlargest(10, "Размер (МБ)"),
-                    x="Имя файла",
-                    y="Размер (МБ)",
-                    title="Топ-10 самых больших файлов"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-        else:
-            st.info("Бакет существует, но пока пуст.")
-
-except Exception as e:
-    st.error(f"Ошибка подключения к MinIO: {e}")
-
-st.divider()
-
-# ====================== 3. ТАБЛИЦЫ БАЗЫ ДАННЫХ ======================
-st.subheader("📋 Таблицы базы данных")
-
-try:
-    with conn.cursor() as cur:
-        # Получаем список всех таблиц
-        cur.execute("""
-            SELECT 
-                t.table_name,
-                pg_size_pretty(pg_total_relation_size(t.table_schema || '.' || t.table_name)) AS total_size,
-                pg_total_relation_size(t.table_schema || '.' || t.table_name) AS total_size_bytes
-            FROM 
-                information_schema.tables t
-            WHERE 
-                t.table_schema = 'public'
-            ORDER BY 
-                total_size_bytes DESC;
-        """)
-        tables = cur.fetchall()
-
-        table_stats = []
-
-        for table_row in tables:
-            table_name = table_row['table_name']
-            
-            # Считаем количество записей в таблице
-            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-            count_result = cur.fetchone()
-            row_count = int(count_result['count'])
-            table_stats.append({
-                "Таблица": table_name,
-                "Записей": row_count,
-                "Размер таблиц": table_row['total_size']
-            })
-
-    if table_stats:
-        df_tables = pd.DataFrame(table_stats)
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Всего таблиц", len(table_stats))
-        total_rows = sum(row['Записей'] for row in table_stats)
-        col2.metric("Всего записей во всех таблицах", f"{total_rows:,}")
-
-        # Красивая таблица
-        st.dataframe(
-            df_tables.sort_values("Записей", ascending=False),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # График распределения записей по таблицам
-        fig = px.bar(
-            df_tables.sort_values("Записей", ascending=False),
-            x="Таблица",
-            y="Записей",
-            title="Количество записей по таблицам",
-            text="Записей"
-        )
-        fig.update_traces(texttemplate='%{text:,}', textposition='outside')
-        st.plotly_chart(fig, use_container_width=True)
-
-    else:
-        st.info("Не удалось получить список таблиц.")
-
-except Exception as e:
-    if conn:
-        conn.rollback()
-    st.error(f"Ошибка при получении информации о таблицах: {e}")
-
-st.divider()
-
-# ====================== 4. ДИАГНОСТИКА ЧАНКОВ ======================
-st.subheader("🔍 Диагностика чанков")
-
-try:
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM document_chunks")
-        total_chunks = int(cur.fetchone()['count'])
-
-        cur.execute("SELECT COUNT(DISTINCT document_id) FROM document_chunks")
-        unique_docs = int(cur.fetchone()['count'])
-
-        cur.execute("SELECT COUNT(DISTINCT filename) FROM document_chunks")
-        unique_files = int(cur.fetchone()['count'])
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Всего чанков", f"{total_chunks:,}")
-    col2.metric("Уникальных документов", f"{unique_docs:,}")
-    col3.metric("Уникальных файлов", f"{unique_files:,}")
-
-except Exception as e:
-    if conn:
-        conn.rollback()
-    st.error(f"Ошибка диагностики чанков: {e}")
 
 # ====================== 5. ЛОГ ЧАТА ======================
 st.subheader("💬 История чата")
