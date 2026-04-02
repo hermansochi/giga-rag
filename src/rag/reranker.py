@@ -163,14 +163,16 @@ def _rerank_bm25(query: str, candidates: List[RerankCandidate], top_n: int) -> L
     try:
         from .bm25 import bm25_search
 
-        doc_chunks = [
-            DocumentChunk.from_text(
-                text=c.text,
+        # Правильное создание DocumentChunk без from_text
+        doc_chunks = []
+        for c in candidates:
+            doc_chunks.append(DocumentChunk(
+                chunk_text=c.text,                    # используем chunk_text
                 filename=c.metadata.get("filename", "unknown"),
                 chunk_index=c.metadata.get("chunk_index", 0),
-                **c.metadata
-            ) for c in candidates
-        ]
+                distance=c.metadata.get("distance", 0.0),
+                metadata=c.metadata
+            ))
 
         bm25_results = bm25_search(query, doc_chunks, top_k=top_n)
 
@@ -188,7 +190,6 @@ def _rerank_bm25(query: str, candidates: List[RerankCandidate], top_n: int) -> L
     except Exception as e:
         st.warning(f"⚠️ Ошибка BM25: {e}")
         return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates[:top_n]]
-
 
 # ====================== Hybrid ======================
 def _rerank_hybrid(query: str, candidates: List[RerankCandidate], top_n: int) -> List[RerankedResult]:
