@@ -51,7 +51,7 @@ class TXTParser(BaseDocumentParser):
         Returns:
             List[str]: Список строк с расширениями, включая '.txt', '.text', '.md'.
         """
-        return [".txt", ".text", ".md"]   # также поддерживаем .md как текст
+        return [".txt", ".text", ".md"]  # также поддерживаем .md как текст
 
     def parse(self, file_bytes: bytes, filename: str) -> List[Tuple[int, str]]:
         """

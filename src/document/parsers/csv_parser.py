@@ -116,7 +116,9 @@ class CSVParser(BaseDocumentParser):
                 # Если есть заголовки — используем DictReader
                 for i, row in enumerate(reader, start=1):
                     if row:
-                        row_items = [f"{key}: {value}" for key, value in row.items() if value]
+                        row_items = [
+                            f"{key}: {value}" for key, value in row.items() if value
+                        ]
                         row_text = " | ".join(row_items)
                         pages.append((i, f"Строка {i}: {row_text}"))
 

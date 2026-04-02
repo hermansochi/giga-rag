@@ -11,7 +11,15 @@ from .dto import (
     ChatSource,
     ChatResponse,
     ParsedDocument,
-    Chunk, 
+    Chunk,
 )
 
-__all__ = ["DocumentChunk", "RerankCandidate", "RerankedResult", "ChatSource", "ChatResponse", "ParsedDocument", "Chunk"]
+__all__ = [
+    "DocumentChunk",
+    "RerankCandidate",
+    "RerankedResult",
+    "ChatSource",
+    "ChatResponse",
+    "ParsedDocument",
+    "Chunk",
+]

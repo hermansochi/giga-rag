@@ -1,10 +1,11 @@
 """
-pages/1_Чат.py — Чат с чистыми метриками
+pages/1_Чат.py — Главный чат-интерфейс RAG-системы с чистыми метриками.
 """
 
 import streamlit as st
 import time
 
+# Импорты из нашего проекта
 from src.gigachat import (
     generate_with_gigachat,
     get_available_models,
@@ -13,8 +14,15 @@ from src.gigachat import (
 from src.config import settings
 from src.database import log_chat_interaction
 
-st.set_page_config(page_title="Чат", page_icon="🧠", layout="wide")
+
+st.set_page_config(
+    page_title="Чат",
+    page_icon="🧠",
+    layout="wide"
+)
+
 st.title("💬 Чат")
+
 
 with st.sidebar:
     st.header("⚙️ Настройки чата")
@@ -23,6 +31,7 @@ with st.sidebar:
     
     available_models: list[str] = get_available_models() or [settings.GIGACHAT_MODEL]
     
+    # Умный выбор модели по умолчанию
     default_index = 0
     try:
         if "GigaChat-2-Max" in available_models:
@@ -31,12 +40,12 @@ with st.sidebar:
         default_index = 0
 
     model_name: str = st.selectbox(
-        "Модель GigaChat", 
-        options=available_models, 
+        "Модель GigaChat",
+        options=available_models,
         index=default_index
     )
     
-    # Выбор реранкинга показываем только если включён RAG
+    # Выбор реранкинга показываем только при включённом RAG
     reranker_options = get_reranker_options()
     
     if use_rag:
@@ -47,7 +56,7 @@ with st.sidebar:
             index=0
         )
     else:
-        selected_reranker: str = "none"  # принудительно без реранкинга
+        selected_reranker: str = "none"
         st.caption("🔹 Реранкинг отключён (режим без RAG)")
 
     st.caption(f"Эмбеддинг модель: **{settings.EMBEDDING_MODEL}**")
@@ -104,10 +113,5 @@ if prompt := st.chat_input("Задайте вопрос..."):
             }
         )
 
-        st.caption(
-            f"⏱ Время: **{response_time:.2f} сек** | "
-            f"📊 Токены: **{metrics['total_tokens']:,}** "
-            f"(prompt: {metrics['prompt_tokens']:,} | completion: {metrics['completion_tokens']:,})"
-        )
     except Exception as e:
-        st.warning(f"⚠️ Не удалось сохранить лог: {e}")
+        st.warning(f"⚠️ Не удалось сохранить лог чата: {e}")

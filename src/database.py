@@ -127,7 +127,7 @@ def save_chunks(
     chunks: List[str],
     embeddings: List[List[float]],
     metadata_list: Optional[List[Dict[str, Any]]] = None,
-    document_type: str = "pdf"
+    document_type: str = "pdf",
 ) -> str:
     """
     Сохраняет только новые чанки. Не сохраняет дубликаты.
@@ -142,14 +142,19 @@ def save_chunks(
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            for i, (text, embedding, meta) in enumerate(zip(chunks, embeddings, metadata_list)):
-                chunk_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+            for i, (text, embedding, meta) in enumerate(
+                zip(chunks, embeddings, metadata_list)
+            ):
+                chunk_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
                 # Проверка на дубликат
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT id FROM document_chunks 
                     WHERE chunk_hash = %s AND embedding_model = %s
-                """, (chunk_hash, embedding_model))
+                """,
+                    (chunk_hash, embedding_model),
+                )
 
                 if cur.fetchone():
                     continue
@@ -161,28 +166,33 @@ def save_chunks(
                     "chunk_index": i,
                 }
 
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO document_chunks 
                     (document_id, filename, chunk_index, chunk_text, chunk_hash, 
                      embedding, embedding_model, metadata, document_type)
                     VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s::jsonb, %s)
-                """, (
-                    document_id,
-                    filename,
-                    i,
-                    text,
-                    chunk_hash,
-                    "[" + ",".join(map(str, embedding)) + "]",
-                    embedding_model,
-                    json.dumps(full_meta),
-                    document_type
-                ))
+                """,
+                    (
+                        document_id,
+                        filename,
+                        i,
+                        text,
+                        chunk_hash,
+                        "[" + ",".join(map(str, embedding)) + "]",
+                        embedding_model,
+                        json.dumps(full_meta),
+                        document_type,
+                    ),
+                )
                 new_chunks_count += 1
 
             conn.commit()
 
         if new_chunks_count > 0:
-            st.success(f"✅ Сохранено {new_chunks_count} новых чанков для файла '{filename}'")
+            st.success(
+                f"✅ Сохранено {new_chunks_count} новых чанков для файла '{filename}'"
+            )
         else:
             st.info(f"ℹ️ Все чанки файла '{filename}' уже существуют в базе.")
 
@@ -203,7 +213,7 @@ def log_token_usage(
     prompt_used: int,
     completion_used: int,
     precached_prompt_used: int = 0,
-    balance_entries: Optional[Dict] = None
+    balance_entries: Optional[Dict] = None,
 ) -> None:
     """
     Логирует использование токенов + баланс от GigaChat.
@@ -212,22 +222,26 @@ def log_token_usage(
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO token_usage_log 
                 (total_tokens, prompt_tokens, completion_tokens, 
                  precached_tokens, balance_entries)
                 VALUES (%s, %s, %s, %s, %s::jsonb)
-            """, (
-                total_used,
-                prompt_used,
-                completion_used,
-                precached_prompt_used,
-                json.dumps(balance_entries) if balance_entries else None
-            ))
+            """,
+                (
+                    total_used,
+                    prompt_used,
+                    completion_used,
+                    precached_prompt_used,
+                    json.dumps(balance_entries) if balance_entries else None,
+                ),
+            )
         conn.commit()
 
     except Exception as e:
         st.warning(f"⚠️ Не удалось записать лог токенов: {e}")
+
 
 def log_chat_interaction(
     user_message: str,
@@ -241,36 +255,40 @@ def log_chat_interaction(
     response_time: float,
     metadata: dict = None,
     rag_context: Optional[str] = None,
-    retrieved_chunks: Optional[list] = None
+    retrieved_chunks: Optional[list] = None,
 ):
     """Логирует взаимодействие в чате, включая RAG-контекст."""
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO chat_logs 
                 (user_message, assistant_response, model_name, use_rag, reranker_type,
                  total_tokens, prompt_tokens, completion_tokens, response_time_sec, metadata,
                  rag_context, retrieved_chunks)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
-            """, (
-                user_message,
-                assistant_response,
-                model_name,
-                use_rag,
-                reranker_type,
-                total_tokens,
-                prompt_tokens,
-                completion_tokens,
-                round(response_time, 2),
-                json.dumps(metadata or {}),
-                rag_context,
-                json.dumps(retrieved_chunks or [])
-            ))
+            """,
+                (
+                    user_message,
+                    assistant_response,
+                    model_name,
+                    use_rag,
+                    reranker_type,
+                    total_tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    round(response_time, 2),
+                    json.dumps(metadata or {}),
+                    rag_context,
+                    json.dumps(retrieved_chunks or []),
+                ),
+            )
         conn.commit()
     except Exception as e:
         logger.error(f"❌ Не удалось сохранить лог чата: {e}", exc_info=True)
         st.warning("⚠️ Логирование не удалось")
+
 
 # ====================== Экспортируемые функции ======================
 __all__ = [
@@ -278,5 +296,5 @@ __all__ = [
     "init_vector_db",
     "save_chunks",
     "log_token_usage",
-    "log_chat_interaction"
+    "log_chat_interaction",
 ]

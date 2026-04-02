@@ -16,7 +16,7 @@ from .base import BaseDocumentParser
 from .parsers.pdf_parser import PDFParser
 from .parsers.txt_parser import TXTParser
 from .parsers.csv_parser import CSVParser
-from .parsers.json_parser import JSONParser   # ← должен быть этот импорт
+from .parsers.json_parser import JSONParser  # ← должен быть этот импорт
 
 
 class DocumentParserFactory:
@@ -148,7 +148,7 @@ class DocumentParserFactory:
 DocumentParserFactory.register_parser(PDFParser)
 DocumentParserFactory.register_parser(TXTParser)
 DocumentParserFactory.register_parser(CSVParser)
-DocumentParserFactory.register_parser(JSONParser)   # ← добавили JSON
+DocumentParserFactory.register_parser(JSONParser)  # ← добавили JSON
 
 
 def parse_document(file_bytes: bytes, filename: str) -> List[Tuple[int, str]]:

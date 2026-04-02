@@ -15,6 +15,7 @@ import re
 
 try:
     import spacy
+
     NLP = spacy.load("ru_core_news_md", disable=["ner", "parser", "lemmatizer"])
     SPACY_AVAILABLE = True
 except (ImportError, OSError):
@@ -23,10 +24,7 @@ except (ImportError, OSError):
 
 
 def create_chunks(
-    text: str,
-    chunk_size: int = 900,
-    overlap: int = 150,
-    min_chunk_size: int = 60
+    text: str, chunk_size: int = 900, overlap: int = 150, min_chunk_size: int = 60
 ) -> List[str]:
     """
     Разбивает текст на семантически осмысленные чанки с использованием spaCy.
@@ -88,7 +86,9 @@ def create_chunks(
 
         # Если одно предложение слишком длинное — режем его жёстко
         if sentence_len > chunk_size * 1.8:
-            sub_chunks = _fallback_chunking(sentence, chunk_size, overlap, min_chunk_size)
+            sub_chunks = _fallback_chunking(
+                sentence, chunk_size, overlap, min_chunk_size
+            )
             chunks.extend(sub_chunks)
             continue
 
@@ -115,7 +115,9 @@ def create_chunks(
     return chunks
 
 
-def _fallback_chunking(text: str, chunk_size: int, overlap: int, min_chunk_size: int) -> List[str]:
+def _fallback_chunking(
+    text: str, chunk_size: int, overlap: int, min_chunk_size: int
+) -> List[str]:
     """
     Резервный метод чанкинга на основе слов, используемый при отсутствии spaCy.
 
@@ -141,7 +143,7 @@ def _fallback_chunking(text: str, chunk_size: int, overlap: int, min_chunk_size:
     i = 0
 
     while i < len(words):
-        chunk = " ".join(words[i:i + chunk_size])
+        chunk = " ".join(words[i : i + chunk_size])
         if len(chunk) >= min_chunk_size:
             chunks.append(chunk)
         i += chunk_size - overlap

@@ -10,7 +10,9 @@ from rank_bm25 import BM25Okapi
 from src.models import DocumentChunk
 
 
-def bm25_search(query: str, chunks: List[DocumentChunk], top_k: int = 40) -> List[DocumentChunk]:
+def bm25_search(
+    query: str, chunks: List[DocumentChunk], top_k: int = 40
+) -> List[DocumentChunk]:
     """Выполняет BM25 поиск и возвращает топ-K чанков."""
     if not chunks:
         return []
@@ -18,9 +20,9 @@ def bm25_search(query: str, chunks: List[DocumentChunk], top_k: int = 40) -> Lis
     try:
         # Скачиваем токенизатор один раз
         try:
-            nltk.data.find('tokenizers/punkt')
+            nltk.data.find("tokenizers/punkt")
         except LookupError:
-            nltk.download('punkt', quiet=True)
+            nltk.download("punkt", quiet=True)
 
         # Подготавливаем данные
         corpus = [chunk.chunk_text.lower().split() for chunk in chunks]

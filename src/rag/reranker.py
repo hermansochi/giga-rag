@@ -33,7 +33,6 @@ def rerank_chunks(
 
     use_type = reranker_type or "none"
 
-    # Преобразуем в кандидаты
     candidates = [RerankCandidate(text=text, metadata=meta) for text, meta in chunks]
 
     if use_type == "cross_encoder":
@@ -45,13 +44,11 @@ def rerank_chunks(
     elif use_type == "hybrid":
         return _rerank_hybrid(query, candidates, top_n)
     else:
-        # none — без реранкинга
         return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates[:top_n]]
 
 
 # ====================== Cross-Encoder ======================
 def _rerank_cross_encoder(query: str, candidates: List[RerankCandidate], top_n: int) -> List[RerankedResult]:
-    """Cross-Encoder реранкинг."""
     model = _get_cross_encoder_model()
     if model is None:
         st.warning("⚠️ Cross-Encoder недоступен.")
@@ -63,11 +60,7 @@ def _rerank_cross_encoder(query: str, candidates: List[RerankCandidate], top_n: 
 
         ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
         return [
-            RerankedResult(
-                text=item[0].text,
-                metadata=item[0].metadata,
-                rerank_score=float(item[1])
-            )
+            RerankedResult(text=item[0].text, metadata=item[0].metadata, rerank_score=float(item[1]))
             for item in ranked[:top_n]
         ]
     except Exception as e:
@@ -76,30 +69,22 @@ def _rerank_cross_encoder(query: str, candidates: List[RerankCandidate], top_n: 
 
 
 def _get_cross_encoder_model():
-    """Загружает и кэширует Cross-Encoder модель."""
     if "cross_encoder_model" not in st.session_state:
         try:
             from sentence_transformers import CrossEncoder
             import torch
-
             model_path = "/app/model_data"
             device = "cuda" if torch.cuda.is_available() else "cpu"
-
             st.info(f"🔄 Загружаю Cross-Encoder из {model_path} на {device}")
             st.session_state.cross_encoder_model = CrossEncoder(model_path, device=device)
-        except ImportError:
-            st.warning("⚠️ sentence-transformers не установлен.")
-            st.session_state.cross_encoder_model = None
         except Exception as e:
             st.error(f"❌ Не удалось загрузить Cross-Encoder: {e}")
             st.session_state.cross_encoder_model = None
-
     return st.session_state.cross_encoder_model
 
 
 # ====================== LLM ======================
 def _rerank_with_llm(query: str, candidates: List[RerankCandidate], top_n: int) -> List[RerankedResult]:
-    """LLM-реранкинг через GigaChat."""
     if len(candidates) <= top_n:
         return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates]
 
@@ -114,9 +99,7 @@ def _rerank_with_llm(query: str, candidates: List[RerankCandidate], top_n: int) 
         prompt = f"""Ты — эксперт по оценке релевантности.
 Вопрос пользователя: "{query}"
 
-Ниже {len(candidates)} фрагментов. Верни только JSON-массив номеров чанков по убыванию релевантности.
-
-Пример: [3, 1, 5, 2, 4]
+Верни только JSON-массив номеров чанков по убыванию релевантности.
 
 Фрагменты:
 
@@ -135,7 +118,6 @@ def _rerank_with_llm(query: str, candidates: List[RerankCandidate], top_n: int) 
         )
 
         answer = resp.choices[0].message.content.strip()
-
         indices = [int(x) - 1 for x in re.findall(r'\d+', answer) if x.isdigit()]
         valid_indices = [i for i in indices if 0 <= i < len(candidates)]
 
@@ -159,20 +141,18 @@ def _rerank_with_llm(query: str, candidates: List[RerankCandidate], top_n: int) 
 
 # ====================== BM25 ======================
 def _rerank_bm25(query: str, candidates: List[RerankCandidate], top_n: int) -> List[RerankedResult]:
-    """Простой BM25 реранкинг."""
     try:
         from .bm25 import bm25_search
 
-        # Правильное создание DocumentChunk без from_text
-        doc_chunks = []
-        for c in candidates:
-            doc_chunks.append(DocumentChunk(
-                chunk_text=c.text,                    # используем chunk_text
+        doc_chunks = [
+            DocumentChunk(
+                chunk_text=c.text,
                 filename=c.metadata.get("filename", "unknown"),
                 chunk_index=c.metadata.get("chunk_index", 0),
                 distance=c.metadata.get("distance", 0.0),
                 metadata=c.metadata
-            ))
+            ) for c in candidates
+        ]
 
         bm25_results = bm25_search(query, doc_chunks, top_k=top_n)
 
@@ -191,13 +171,13 @@ def _rerank_bm25(query: str, candidates: List[RerankCandidate], top_n: int) -> L
         st.warning(f"⚠️ Ошибка BM25: {e}")
         return [RerankedResult(text=c.text, metadata=c.metadata) for c in candidates[:top_n]]
 
+
 # ====================== Hybrid ======================
 def _rerank_hybrid(query: str, candidates: List[RerankCandidate], top_n: int) -> List[RerankedResult]:
-    """Гибридный поиск: Vector + BM25 + RRF"""
-    from .bm25 import bm25_search
-    from src.gigachat import find_relevant_chunks
-
     try:
+        from .bm25 import bm25_search
+        from src.gigachat import find_relevant_chunks   # импорт внутри функции
+
         vector_chunks = find_relevant_chunks(query, top_k=50)
         bm25_chunks = bm25_search(query, vector_chunks, top_k=50)
 
@@ -209,7 +189,6 @@ def _rerank_hybrid(query: str, candidates: List[RerankCandidate], top_n: int) ->
 
 
 def _rrf_fusion(vector_chunks: List[DocumentChunk], bm25_chunks: List[DocumentChunk], top_n: int) -> List[RerankedResult]:
-    """Reciprocal Rank Fusion"""
     from collections import defaultdict
 
     scores = defaultdict(float)

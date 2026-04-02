@@ -54,7 +54,6 @@ class BaseDocumentParser(ABC):
         """
         pass
 
-
     def get_supported_extensions(self) -> List[str]:
         """
         Возвращает список поддерживаемых расширений файлов.
@@ -73,7 +72,6 @@ class BaseDocumentParser(ABC):
             Для TXT парсера: ['.txt', '.text', '.md']
         """
         return []
-
 
     @staticmethod
     def get_file_extension(filename: str) -> str:

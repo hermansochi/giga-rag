@@ -13,25 +13,25 @@ from collections import defaultdict
 
 from src.database import get_db_connection
 
-st.set_page_config(
-    page_title="Мониторинг",
-    page_icon="📊",
-    layout="wide"
-)
+st.set_page_config(page_title="Мониторинг", page_icon="📊", layout="wide")
 
 st.title("📊 Мониторинг RAG-системы")
+
 
 # ====================== Вспомогательные функции ======================
 @st.cache_data(ttl=30)
 def get_token_logs(limit: int = 200) -> pd.DataFrame:
     conn = get_db_connection()
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(
+            """
             SELECT timestamp, total_tokens, prompt_tokens, completion_tokens, balance_entries
             FROM token_usage_log 
             ORDER BY timestamp DESC 
             LIMIT %s
-        """, (limit,))
+        """,
+            (limit,),
+        )
         rows = cur.fetchall()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -53,15 +53,13 @@ def get_table_stats() -> pd.DataFrame:
 
     stats = []
     for row in tables:
-        table_name = row['table_name']
+        table_name = row["table_name"]
         with conn.cursor() as cur:
             cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-            count = cur.fetchone()['count']
-        stats.append({
-            "Таблица": table_name,
-            "Записей": int(count),
-            "Размер": row['total_size']
-        })
+            count = cur.fetchone()["count"]
+        stats.append(
+            {"Таблица": table_name, "Записей": int(count), "Размер": row["total_size"]}
+        )
     return pd.DataFrame(stats)
 
 
@@ -76,21 +74,24 @@ with tab1:
     if not df_tokens.empty:
         col1, col2, col3 = st.columns(3)
         col1.metric("Всего токенов", f"{df_tokens['total_tokens'].sum():,}")
-        col2.metric("Среднее на запрос", f"{int(df_tokens['total_tokens'].mean()):,}" if len(df_tokens) > 0 else 0)
+        col2.metric(
+            "Среднее на запрос",
+            f"{int(df_tokens['total_tokens'].mean()):,}" if len(df_tokens) > 0 else 0,
+        )
         col3.metric("Всего запросов", len(df_tokens))
 
         # Stacked bar по дням
-        df_tokens['date'] = pd.to_datetime(df_tokens['timestamp']).dt.date
-        daily = df_tokens.groupby('date').sum(numeric_only=True).reset_index()
+        df_tokens["date"] = pd.to_datetime(df_tokens["timestamp"]).dt.date
+        daily = df_tokens.groupby("date").sum(numeric_only=True).reset_index()
 
         fig_tokens = px.bar(
             daily,
-            x='date',
-            y=['prompt_tokens', 'completion_tokens'],
+            x="date",
+            y=["prompt_tokens", "completion_tokens"],
             title="Расход токенов по дням (stacked)",
             template="plotly_white",
-            barmode='stack',
-            text_auto=True
+            barmode="stack",
+            text_auto=True,
         )
         fig_tokens.update_layout(height=520)
         st.plotly_chart(fig_tokens, use_container_width=True)
@@ -101,20 +102,19 @@ with tab1:
         balance_by_model = defaultdict(list)
 
         for _, row in df_tokens.iterrows():
-            if row['balance_entries']:
+            if row["balance_entries"]:
                 try:
-                    data = row['balance_entries']
+                    data = row["balance_entries"]
                     if isinstance(data, str):
                         data = json.loads(data)
 
-                    if isinstance(data, dict) and 'balance' in data:
-                        for item in data['balance']:
-                            model_name = item.get('usage', 'unknown')
-                            value = float(item.get('value', 0))
-                            balance_by_model[model_name].append({
-                                'timestamp': row['timestamp'],
-                                'value': value
-                            })
+                    if isinstance(data, dict) and "balance" in data:
+                        for item in data["balance"]:
+                            model_name = item.get("usage", "unknown")
+                            value = float(item.get("value", 0))
+                            balance_by_model[model_name].append(
+                                {"timestamp": row["timestamp"], "value": value}
+                            )
                 except:
                     pass
 
@@ -125,11 +125,11 @@ with tab1:
                 df_model = pd.DataFrame(history)
                 fig = px.line(
                     df_model,
-                    x='timestamp',
-                    y='value',
+                    x="timestamp",
+                    y="value",
                     title=f"Баланс модели: **{model_name}**",
                     template="plotly_white",
-                    markers=True
+                    markers=True,
                 )
                 fig.update_layout(height=420)
                 st.plotly_chart(fig, use_container_width=True)
@@ -147,17 +147,20 @@ with tab2:
         col1.metric("Всего таблиц", len(df_tables))
         col2.metric("Всего записей", f"{df_tables['Записей'].sum():,}")
 
-        st.dataframe(df_tables.sort_values("Записей", ascending=False), 
-                     use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_tables.sort_values("Записей", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         fig = px.bar(
             df_tables.sort_values("Записей", ascending=False),
             x="Таблица",
             y="Записей",
             title="Количество записей по таблицам",
-            text="Записей"
+            text="Записей",
         )
-        fig.update_traces(texttemplate='%{text:,}', textposition='outside')
+        fig.update_traces(texttemplate="%{text:,}", textposition="outside")
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Не удалось получить статистику таблиц.")

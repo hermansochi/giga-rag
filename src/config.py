@@ -5,14 +5,21 @@ from typing import Literal
 
 class Settings(BaseSettings):
     # ==================== GigaChat ====================
-    GIGACHAT_API_KEY: str                    # Обязательное поле, берётся только из .env
+    GIGACHAT_API_KEY: str  # Обязательное поле, берётся только из .env
     GIGACHAT_SCOPE: str = "GIGACHAT_API_B2B"
     GIGACHAT_MODEL: str = "GigaChat-2-Max"
     EMBEDDING_MODEL: str = "GigaEmbeddings-3B-2025-09"
     EMBEDDING_DIM: int = 2048
 
     # ==================== RAG ====================
-    RERANKER_TYPE: Literal["llm", "cross_encoder"] = "llm"
+    # Все возможные типы реранкинга
+    RERANKER_TYPE: Literal[
+        "none",           # Без реранкинга
+        "llm",            # Через GigaChat
+        "cross_encoder",  # Нейросетевой Cross-Encoder
+        "bm25",           # Полнотекстовый BM25
+        "hybrid"          # Гибридный: Vector + BM25 + RRF
+    ] = "none"            # По умолчанию — без реранкинга (безопасно)
     RERANK_CANDIDATES: int = 15
     RERANK_TOP_N: int = 5
     CROSS_ENCODER_MODEL: str = "DiTy/cross-encoder-russian-msmarco"
@@ -22,7 +29,7 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "app"
     POSTGRES_USER: str = "app"
-    POSTGRES_PASSWORD: str                     # Обязательное, без значения по умолчания
+    POSTGRES_PASSWORD: str  # Обязательное, без значения по умолчания
 
     # ==================== MinIO ====================
     MINIO_ENDPOINT: str = "minio:9000"
@@ -33,7 +40,7 @@ class Settings(BaseSettings):
 
     # ==================== GigaChat ====================
     BASE_SYSTEM_PROMT: str = "Ты дружелюбный и полезный помощник."
-    RAG_SYSTEM_PROMT: str = "Ты — точный помощник. Отвечай строго по документам."
+    RAG_SYSTEM_PROMT: str = "Ответь максимально полезно и информативно на основе предоставленного контекста. Если информации недостаточно — честно скажи об этом."
     RAG_PROMT_SUFFIX: str = "Ответь максимально полезно"
     BASE_TEMPERATURE: float = 0.7
     RAG_TEMPERATURE: float = 0.3

@@ -111,7 +111,6 @@ class PDFParser(BaseDocumentParser):
             return []
 
 
-
 # Для удобного импорта
 def parse_pdf(file_bytes: bytes, filename: str) -> List[Tuple[int, str]]:
     """

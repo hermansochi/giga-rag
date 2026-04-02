@@ -52,7 +52,7 @@ with st.expander("⚙️ Настройки промптов и температ
             "Промпт для режима без поиска по документам:",
             value=st.session_state.custom_base_prompt,
             height=150,
-            key="edit_base_prompt"
+            key="edit_base_prompt",
         )
 
     # RAG System Prompt
@@ -62,14 +62,14 @@ with st.expander("⚙️ Настройки промптов и температ
             "Промпт для режима с поиском по документам:",
             value=st.session_state.custom_rag_prompt,
             height=150,
-            key="edit_rag_prompt"
+            key="edit_rag_prompt",
         )
 
     # RAG Suffix
     rag_suffix = st.text_input(
         "Дополнительный суффикс к вопросу в RAG (например, 'Дай краткий ответ')",
         value=st.session_state.custom_rag_suffix,
-        key="edit_rag_suffix"
+        key="edit_rag_suffix",
     )
 
     # Температуры
@@ -81,7 +81,7 @@ with st.expander("⚙️ Настройки промптов и температ
             max_value=1.0,
             value=st.session_state.custom_base_temperature,
             step=0.05,
-            key="edit_base_temp"
+            key="edit_base_temp",
         )
     with col4:
         rag_temp = st.slider(
@@ -90,7 +90,7 @@ with st.expander("⚙️ Настройки промптов и температ
             max_value=1.0,
             value=st.session_state.custom_rag_temperature,
             step=0.05,
-            key="edit_rag_temp"
+            key="edit_rag_temp",
         )
 
     if st.button("💾 Сохранить настройки", type="primary", use_container_width=True):
@@ -106,13 +106,16 @@ with st.expander("⚙️ Настройки промптов и температ
         st.info("""
         🔧 Чтобы сохранить настройки **навсегда**, добавьте в файл `.env`:
         """)
-        st.code(f"""
+        st.code(
+            f"""
 BASE_SYSTEM_PROMT={base_prompt.strip()}
 RAG_SYSTEM_PROMT={rag_prompt.strip()}
 RAG_PROMT_SUFFIX={rag_suffix.strip()}
 BASE_TEMPERATURE={base_temp}
 RAG_TEMPERATURE={rag_temp}
-        """.strip(), language="env")
+        """.strip(),
+            language="env",
+        )
 
 # --- Отображение текущих настроек ---
 st.info(f"""

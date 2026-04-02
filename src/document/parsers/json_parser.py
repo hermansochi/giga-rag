@@ -109,7 +109,7 @@ class JSONParser(BaseDocumentParser):
             pages: List[Tuple[int, str]] = []
 
             # Определяем формат по расширению
-            is_jsonl = filename.lower().endswith('.jsonl')
+            is_jsonl = filename.lower().endswith(".jsonl")
 
             if is_jsonl:
                 # JSON Lines формат — каждая строка = отдельный JSON
@@ -127,7 +127,9 @@ class JSONParser(BaseDocumentParser):
                             pages.append((i, f"Запись {i}: {str(item)}"))
                     except json.JSONDecodeError:
                         st.warning(f"Строка {i} не является валидным JSON")
-                        pages.append((i, f"Запись {i} (невалидный JSON): {line[:200]}..."))
+                        pages.append(
+                            (i, f"Запись {i} (невалидный JSON): {line[:200]}...")
+                        )
 
             else:
                 # Обычный .json файл
@@ -143,14 +145,27 @@ class JSONParser(BaseDocumentParser):
 
                 elif isinstance(data, dict):
                     found = False
-                    common_keys = ['data', 'items', 'records', 'rows', 'results', 'entries', 'values', 'list']
+                    common_keys = [
+                        "data",
+                        "items",
+                        "records",
+                        "rows",
+                        "results",
+                        "entries",
+                        "values",
+                        "list",
+                    ]
 
                     for key in common_keys:
                         if key in data and isinstance(data[key], list):
                             for i, item in enumerate(data[key], 1):
                                 if isinstance(item, dict):
-                                    item_text = json.dumps(item, ensure_ascii=False, indent=2)
-                                    pages.append((i, f"Запись {i} ({key}):\n{item_text}"))
+                                    item_text = json.dumps(
+                                        item, ensure_ascii=False, indent=2
+                                    )
+                                    pages.append(
+                                        (i, f"Запись {i} ({key}):\n{item_text}")
+                                    )
                                 else:
                                     pages.append((i, f"Запись {i}: {str(item)}"))
                             found = True

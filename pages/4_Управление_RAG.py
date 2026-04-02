@@ -14,13 +14,10 @@ import time
 from src.config import settings
 from src.database import get_db_connection
 
-st.set_page_config(
-    page_title="Управление RAG",
-    page_icon="⚙️",
-    layout="wide"
-)
+st.set_page_config(page_title="Управление RAG", page_icon="⚙️", layout="wide")
 
 st.title("⚙️ Управление RAG-системой")
+
 
 # ====================== МОДАЛЬНОЕ ОКНО УДАЛЕНИЯ ======================
 @st.dialog("⚠️ Подтверждение удаления")
@@ -45,11 +42,13 @@ def delete_file_with_confirmation(minio_client, bucket_name: str, object_name: s
                 with conn.cursor() as cur:
                     cur.execute(
                         "DELETE FROM document_chunks WHERE filename = %s",
-                        (object_name,)
+                        (object_name,),
                     )
                     conn.commit()
 
-                st.success(f"✅ Файл `{object_name}` и все связанные чанки успешно удалены!")
+                st.success(
+                    f"✅ Файл `{object_name}` и все связанные чанки успешно удалены!"
+                )
                 time.sleep(1)
                 st.rerun()
 
@@ -71,7 +70,7 @@ try:
         settings.MINIO_ENDPOINT,
         access_key=settings.MINIO_ACCESS_KEY,
         secret_key=settings.MINIO_SECRET_KEY,
-        secure=settings.MINIO_SECURE
+        secure=settings.MINIO_SECURE,
     )
 
     bucket_name = settings.MINIO_BUCKET_NAME
@@ -97,17 +96,21 @@ try:
             for obj in objects:
                 size_mb = obj.size / (1024 * 1024)
                 total_size += obj.size
-                file_list.append({
-                    "object_name": obj.object_name,
-                    "size_mb": round(size_mb, 2),
-                    "last_modified": obj.last_modified.strftime("%Y-%m-%d %H:%M") if obj.last_modified else "—"
-                })
+                file_list.append(
+                    {
+                        "object_name": obj.object_name,
+                        "size_mb": round(size_mb, 2),
+                        "last_modified": obj.last_modified.strftime("%Y-%m-%d %H:%M")
+                        if obj.last_modified
+                        else "—",
+                    }
+                )
 
             df_files = pd.DataFrame(file_list)
 
             col1, col2 = st.columns(2)
             col1.metric("Всего файлов", len(objects))
-            col2.metric("Общий объём", f"{total_size / (1024*1024):.2f} МБ")
+            col2.metric("Общий объём", f"{total_size / (1024 * 1024):.2f} МБ")
 
             for idx, row in df_files.iterrows():
                 with st.container():
@@ -118,7 +121,9 @@ try:
                         st.caption(f"{row['size_mb']} МБ | {row['last_modified']}")
                     with col_c:
                         if st.button("🗑️ Удалить", key=f"del_btn_{idx}"):
-                            delete_file_with_confirmation(minio_client, bucket_name, row['object_name'])
+                            delete_file_with_confirmation(
+                                minio_client, bucket_name, row["object_name"]
+                            )
 
             if len(df_files) > 1:
                 fig = px.bar(
@@ -126,7 +131,7 @@ try:
                     x="object_name",
                     y="size_mb",
                     title="Топ-10 самых больших файлов",
-                    labels={"object_name": "Файл", "size_mb": "Размер (МБ)"}
+                    labels={"object_name": "Файл", "size_mb": "Размер (МБ)"},
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -143,13 +148,13 @@ try:
 
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM document_chunks")
-        total_chunks = int(cur.fetchone()['count'])
+        total_chunks = int(cur.fetchone()["count"])
 
         cur.execute("SELECT COUNT(DISTINCT document_id) FROM document_chunks")
-        unique_docs = int(cur.fetchone()['count'])
+        unique_docs = int(cur.fetchone()["count"])
 
         cur.execute("SELECT COUNT(DISTINCT filename) FROM document_chunks")
-        unique_files = int(cur.fetchone()['count'])
+        unique_files = int(cur.fetchone()["count"])
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Всего чанков", f"{total_chunks:,}")
@@ -185,28 +190,30 @@ try:
         table_stats = []
 
         for table_row in tables:
-            table_name = table_row['table_name']
+            table_name = table_row["table_name"]
             cur.execute(f"SELECT COUNT(*) FROM {table_name}")
             count_result = cur.fetchone()
-            row_count = int(count_result['count'])
-            table_stats.append({
-                "Таблица": table_name,
-                "Записей": row_count,
-                "Размер таблиц": table_row['total_size']
-            })
+            row_count = int(count_result["count"])
+            table_stats.append(
+                {
+                    "Таблица": table_name,
+                    "Записей": row_count,
+                    "Размер таблиц": table_row["total_size"],
+                }
+            )
 
     if table_stats:
         df_tables = pd.DataFrame(table_stats)
-        
+
         col1, col2 = st.columns(2)
         col1.metric("Всего таблиц", len(table_stats))
-        total_rows = sum(row['Записей'] for row in table_stats)
+        total_rows = sum(row["Записей"] for row in table_stats)
         col2.metric("Всего записей во всех таблицах", f"{total_rows:,}")
 
         st.dataframe(
             df_tables.sort_values("Записей", ascending=False),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
 
         fig = px.bar(
@@ -214,9 +221,9 @@ try:
             x="Таблица",
             y="Записей",
             title="Количество записей по таблицам",
-            text="Записей"
+            text="Записей",
         )
-        fig.update_traces(texttemplate='%{text:,}', textposition='outside')
+        fig.update_traces(texttemplate="%{text:,}", textposition="outside")
         st.plotly_chart(fig, use_container_width=True)
 
     else:

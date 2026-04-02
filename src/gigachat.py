@@ -7,8 +7,13 @@ from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 
 from src.config import settings
-from src.database import get_db_connection, log_token_usage, log_chat_interaction   # ← вот так
+from src.database import (
+    get_db_connection,
+    log_token_usage,
+    log_chat_interaction,
+)  # ← вот так
 from src.models import DocumentChunk, RerankCandidate, RerankedResult
+
 
 def get_gigachat_client() -> GigaChat:
     """Возвращает (или создаёт) клиент GigaChat. Хранится в session_state."""
@@ -25,16 +30,20 @@ def get_gigachat_client() -> GigaChat:
             st.stop()
     return st.session_state.gigachat_client
 
+
 def get_available_models() -> List[str]:
     """Возвращает список доступных моделей GigaChat."""
     try:
         client = get_gigachat_client()
         response = client.get_models()
         if response and response.data:
-            return sorted([getattr(m, 'id_', getattr(m, 'id', str(m))) for m in response.data])
+            return sorted(
+                [getattr(m, "id_", getattr(m, "id", str(m))) for m in response.data]
+            )
         return [settings.GIGACHAT_MODEL]
     except Exception:
         return [settings.GIGACHAT_MODEL]
+
 
 def get_reranker_options() -> Dict[str, str]:
     """Возвращает варианты реранкера для UI."""
@@ -43,18 +52,21 @@ def get_reranker_options() -> Dict[str, str]:
         "llm": "LLM-реранкинг (через GigaChat)",
         "cross_encoder": "Cross-Encoder",
         "bm25": "BM25 (полнотекстовый поиск)",
-        "hybrid": "Гибридный поиск (Vector + BM25 + RRF)"
+        "hybrid": "Гибридный поиск (Vector + BM25 + RRF)",
     }
+
 
 def find_relevant_chunks(query: str, top_k: int = 15) -> List[DocumentChunk]:
     """Выполняет векторный поиск и возвращает список DocumentChunk.
-    
+
     Теперь используем DTO вместо сырых словарей — код стал чище и типобезопаснее.
     """
     client = get_gigachat_client()
     try:
         embedding_model = getattr(settings, "EMBEDDING_MODEL", "Embeddings")
-        st.info(f"🔍 Генерирую эмбеддинг для запроса: '{query[:50]}...' (модель: {embedding_model})")
+        st.info(
+            f"🔍 Генерирую эмбеддинг для запроса: '{query[:50]}...' (модель: {embedding_model})"
+        )
 
         emb_response = client.embeddings(model=embedding_model, texts=[query])
 
@@ -69,12 +81,15 @@ def find_relevant_chunks(query: str, top_k: int = 15) -> List[DocumentChunk]:
 
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT chunk_text, filename, chunk_index, embedding <-> %s::VECTOR AS distance
                 FROM document_chunks
                 ORDER BY distance
                 LIMIT %s
-            """, (str(query_embedding), top_k))
+            """,
+                (str(query_embedding), top_k),
+            )
             raw_rows = cur.fetchall()
 
         if not raw_rows:
@@ -89,36 +104,47 @@ def find_relevant_chunks(query: str, top_k: int = 15) -> List[DocumentChunk]:
         st.error(f"Traceback:\n{traceback.format_exc()[:800]}...")
         return []
 
+
 def get_balance_info(client: GigaChat) -> Optional[Dict[str, Any]]:
     """Получает баланс и преобразует в словарь."""
     try:
         balance_obj = None
-        if hasattr(client, 'get_balance'):
+        if hasattr(client, "get_balance"):
             balance_obj = client.get_balance()
-        elif hasattr(client, 'balance'):
+        elif hasattr(client, "balance"):
             balance_obj = client.balance
-        elif hasattr(client, 'get_account_balance'):
+        elif hasattr(client, "get_account_balance"):
             balance_obj = client.get_account_balance()
 
         if balance_obj is None:
             return None
 
-        if hasattr(balance_obj, 'model_dump'):
+        if hasattr(balance_obj, "model_dump"):
             return balance_obj.model_dump()
-        elif hasattr(balance_obj, 'dict'):
+        elif hasattr(balance_obj, "dict"):
             return balance_obj.dict()
-        return vars(balance_obj) if hasattr(balance_obj, '__dict__') else str(balance_obj)
+        return (
+            vars(balance_obj) if hasattr(balance_obj, "__dict__") else str(balance_obj)
+        )
 
     except Exception as e:
         st.warning(f"Не удалось получить баланс: {e}")
         return None
 
-def _get_simple_response(client: GigaChat, prompt: str, model_name: str) -> Tuple[str, int, int]:
+
+def _get_simple_response(
+    client: GigaChat, prompt: str, model_name: str
+) -> Tuple[str, int, int]:
     """Простой запрос без RAG."""
     try:
         messages = [
-            Messages(role=MessagesRole.SYSTEM, content=st.session_state.get("custom_base_prompt", settings.BASE_SYSTEM_PROMT)),
-            Messages(role=MessagesRole.USER, content=prompt)
+            Messages(
+                role=MessagesRole.SYSTEM,
+                content=st.session_state.get(
+                    "custom_base_prompt", settings.BASE_SYSTEM_PROMT
+                ),
+            ),
+            Messages(role=MessagesRole.USER, content=prompt),
         ]
 
         resp = client.chat(Chat(messages=messages, model=model_name))
@@ -127,20 +153,27 @@ def _get_simple_response(client: GigaChat, prompt: str, model_name: str) -> Tupl
         balance_info = get_balance_info(client)
 
         log_token_usage(
-            total_used=getattr(resp.usage, 'total_tokens', 0),
-            prompt_used=getattr(resp.usage, 'prompt_tokens', 0),
-            completion_used=getattr(resp.usage, 'completion_tokens', 0),
-            precached_prompt_used=getattr(resp.usage, 'precached_prompt_tokens', 0),
-            balance_entries=balance_info
+            total_used=getattr(resp.usage, "total_tokens", 0),
+            prompt_used=getattr(resp.usage, "prompt_tokens", 0),
+            completion_used=getattr(resp.usage, "completion_tokens", 0),
+            precached_prompt_used=getattr(resp.usage, "precached_prompt_tokens", 0),
+            balance_entries=balance_info,
         )
 
-        return answer, getattr(resp.usage, 'prompt_tokens', 0), getattr(resp.usage, 'completion_tokens', 0)
+        return (
+            answer,
+            getattr(resp.usage, "prompt_tokens", 0),
+            getattr(resp.usage, "completion_tokens", 0),
+        )
 
     except Exception as e:
         st.warning(f"⚠️ Ошибка простого запроса: {e}")
         return "Не удалось сгенерировать ответ 😔", 0, 0
 
-def _get_rag_response(client: GigaChat, prompt: str, relevant_chunks: List[DocumentChunk], model_name: str) -> Tuple[str, int, int]:
+
+def _get_rag_response(
+    client: GigaChat, prompt: str, relevant_chunks: List[DocumentChunk], model_name: str
+) -> Tuple[str, int, int]:
     """Генерация ответа с использованием RAG-контекста.
     Использует DocumentChunk для формирования промпта.
     """
@@ -163,10 +196,12 @@ def _get_rag_response(client: GigaChat, prompt: str, relevant_chunks: List[Docum
             Chat(
                 messages=[
                     Messages(role=MessagesRole.SYSTEM, content=system_prompt),
-                    Messages(role=MessagesRole.USER, content=user_msg)
+                    Messages(role=MessagesRole.USER, content=user_msg),
                 ],
                 model=model_name,
-                temperature=st.session_state.get("custom_rag_temperature", settings.RAG_TEMPERATURE),
+                temperature=st.session_state.get(
+                    "custom_rag_temperature", settings.RAG_TEMPERATURE
+                ),
             )
         )
 
@@ -174,18 +209,23 @@ def _get_rag_response(client: GigaChat, prompt: str, relevant_chunks: List[Docum
         balance_info = get_balance_info(client)
 
         log_token_usage(
-            total_used=getattr(resp.usage, 'total_tokens', 0),
-            prompt_used=getattr(resp.usage, 'prompt_tokens', 0),
-            completion_used=getattr(resp.usage, 'completion_tokens', 0),
-            precached_prompt_used=getattr(resp.usage, 'precached_prompt_tokens', 0),
-            balance_entries=balance_info
+            total_used=getattr(resp.usage, "total_tokens", 0),
+            prompt_used=getattr(resp.usage, "prompt_tokens", 0),
+            completion_used=getattr(resp.usage, "completion_tokens", 0),
+            precached_prompt_used=getattr(resp.usage, "precached_prompt_tokens", 0),
+            balance_entries=balance_info,
         )
 
-        return answer, getattr(resp.usage, 'prompt_tokens', 0), getattr(resp.usage, 'completion_tokens', 0)
+        return (
+            answer,
+            getattr(resp.usage, "prompt_tokens", 0),
+            getattr(resp.usage, "completion_tokens", 0),
+        )
 
     except Exception as e:
         st.warning(f"⚠️ Ошибка RAG-запроса: {e}")
         return "Не удалось получить ответ на основе документов 😔", 0, 0
+
 
 def generate_with_gigachat(
     prompt: str,
@@ -206,12 +246,16 @@ def generate_with_gigachat(
     relevant_chunks: List[DocumentChunk] = []
 
     if not use_rag:
-        answer, prompt_tokens, completion_tokens = _get_simple_response(client, prompt, model_name)
+        answer, prompt_tokens, completion_tokens = _get_simple_response(
+            client, prompt, model_name
+        )
         sources_html = ""
         context_details = ""
     else:
         # 1. Векторный поиск
-        relevant_chunks_raw: List[DocumentChunk] = find_relevant_chunks(prompt, settings.RERANK_CANDIDATES)
+        relevant_chunks_raw: List[DocumentChunk] = find_relevant_chunks(
+            prompt, settings.RERANK_CANDIDATES
+        )
 
         # 2. Подготовка кандидатов
         candidate_chunks: List[RerankCandidate] = [
@@ -220,7 +264,7 @@ def generate_with_gigachat(
 
         # 3. Реранкинг
         if reranker_type and reranker_type != "none":
-            from src.rag.reranker import rerank_chunks
+            from src.rag.reranker import rerank_chunks   # ← импорт внутри функции
             st.info(f"🔄 Применяю реранкинг: {reranker_type}")
 
             ranked_results: List[RerankedResult] = rerank_chunks(
@@ -236,7 +280,7 @@ def generate_with_gigachat(
                     filename=result.metadata.get("filename", "неизвестный"),
                     chunk_index=result.metadata.get("chunk_index", 0),
                     distance=result.metadata.get("distance", 0.0),
-                    metadata=result.metadata
+                    metadata=result.metadata,
                 )
                 for result in ranked_results
             ]
@@ -249,7 +293,7 @@ def generate_with_gigachat(
                 "filename": chunk.filename,
                 "chunk_index": chunk.chunk_index,
                 "distance": chunk.distance,
-                "text": chunk.chunk_text[:500]
+                "text": chunk.chunk_text[:500],
             }
             for chunk in relevant_chunks
         ]
@@ -261,27 +305,37 @@ def generate_with_gigachat(
             for i, chunk in enumerate(relevant_chunks, 1)
         ]
 
-        rag_suffix = st.session_state.get("custom_rag_suffix", settings.RAG_PROMT_SUFFIX)
-        full_context = "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\n{rag_suffix}:"
+        rag_suffix = st.session_state.get(
+            "custom_rag_suffix", settings.RAG_PROMT_SUFFIX
+        )
+        full_context = (
+            "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\n{rag_suffix}:"
+        )
 
         # 6. Генерация ответа
-        answer, prompt_tokens, completion_tokens = _get_rag_response(client, prompt, relevant_chunks, model_name)
+        answer, prompt_tokens, completion_tokens = _get_rag_response(
+            client, prompt, relevant_chunks, model_name
+        )
 
         # 7. HTML-блоки
         sources_html = _build_sources_html(relevant_chunks)
         context_details = _build_context_details(
             full_context=full_context,
             reranked_chunks=relevant_chunks,
-            reranker_type=reranker_type
+            reranker_type=reranker_type,
         )
 
     duration = round(time.time() - start_time, 2)
     total_tokens = prompt_tokens + completion_tokens
 
     # 8. Метрики HTML
-    metrics_html = _build_metrics_html(duration, total_tokens, prompt_tokens, completion_tokens)
+    metrics_html = _build_metrics_html(
+        duration, total_tokens, prompt_tokens, completion_tokens
+    )
 
-    final_response = f"{answer}\n\n{sources_html}\n{context_details}\n{metrics_html}".strip()
+    final_response = (
+        f"{answer}\n\n{sources_html}\n{context_details}\n{metrics_html}".strip()
+    )
 
     # ====================== ЧИСТЫЕ МЕТРИКИ ======================
     metrics: Dict[str, Any] = {
@@ -296,6 +350,7 @@ def generate_with_gigachat(
 
     return final_response, metrics
 
+
 def _build_sources_html(chunks: List[DocumentChunk]) -> str:
     """Expandable блок «Использованные источники» — в едином стиле с контекстом."""
     if not chunks:
@@ -303,10 +358,10 @@ def _build_sources_html(chunks: List[DocumentChunk]) -> str:
 
     sources_parts = []
     for chunk in chunks:
-        preview = chunk.short_text.replace('\n', ' ').strip()
+        preview = chunk.short_text.replace("\n", " ").strip()
         if len(preview) > 280:
             preview = preview[:280] + "..."
-        
+
         sources_parts.append(
             f"<b>📄 {chunk.filename}</b> (dist: {chunk.distance:.4f})<br>"
             f"<small>Чанк {chunk.chunk_index} • {preview}</small>"
@@ -330,7 +385,7 @@ def _build_sources_html(chunks: List[DocumentChunk]) -> str:
 def _build_context_details(
     full_context: Optional[str],
     reranked_chunks: Optional[List[DocumentChunk]] = None,
-    reranker_type: Optional[str] = None
+    reranker_type: Optional[str] = None,
 ) -> str:
     """Expandable блок контекста в едином стиле."""
     if not full_context:
@@ -371,8 +426,10 @@ def _build_context_details(
 </details>
 """
 
-def _build_metrics_html(duration: float, total_tokens: int, 
-                       prompt_tokens: int, completion_tokens: int) -> str:
+
+def _build_metrics_html(
+    duration: float, total_tokens: int, prompt_tokens: int, completion_tokens: int
+) -> str:
     """Формирует HTML-блок с метриками (время + токены)."""
     return f"""
 <div style='color:#666; font-size:0.78em; margin-top:14px; padding:10px; background:#f8f9fa; border-radius:8px;'>
