@@ -1,8 +1,9 @@
 """
 src/database.py
 
-Модуль работы с базой данных (PostgreSQL + pgvector).
-Исправлена функция log_token_usage — теперь баланс сохраняется корректно.
+Модуль работы с PostgreSQL и pgvector.
+Содержит функции для подключения к БД, инициализации схемы,
+сохранения чанков документов и логирования использования токенов и чат-взаимодействий.
 """
 
 import psycopg2
@@ -19,8 +20,10 @@ from .config import settings
 
 def get_db_connection():
     """
-    Возвращает соединение к БД для текущей сессии Streamlit.
-    Соединение создаётся один раз и переиспользуется.
+    Возвращает соединение к базе данных.
+
+    Соединение создаётся один раз и хранится в st.session_state
+    для переиспользования в рамках сессии Streamlit.
     """
     if "db_connection" not in st.session_state:
         try:
@@ -42,7 +45,8 @@ def get_db_connection():
 
 def init_vector_db():
     """
-    Инициализация базы данных.
+    Инициализирует структуру базы данных (таблицы, расширения и индексы).
+    Выполняется один раз за сессию.
     """
     if st.session_state.get("db_fully_initialized", False):
         return
@@ -53,7 +57,7 @@ def init_vector_db():
             # Расширение vector
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-            # Таблица чанков
+            # Таблица чанков документов
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS document_chunks (
                     id SERIAL PRIMARY KEY,
@@ -74,7 +78,7 @@ def init_vector_db():
                 );
             """)
 
-            # Таблица логов токенов
+            # Таблица логов использования токенов
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS token_usage_log (
                     id SERIAL PRIMARY KEY,
@@ -87,7 +91,7 @@ def init_vector_db():
                 );
             """)
 
-            # Таблица логов
+            # Таблица логов чат-взаимодействий
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS chat_logs (
                     id SERIAL PRIMARY KEY,
@@ -130,7 +134,7 @@ def save_chunks(
     document_type: str = "pdf",
 ) -> str:
     """
-    Сохраняет только новые чанки. Не сохраняет дубликаты.
+    Сохраняет чанки документов в базу, пропуская дубликаты по chunk_hash + embedding_model.
     """
     if metadata_list is None:
         metadata_list = [{} for _ in chunks]
@@ -147,7 +151,7 @@ def save_chunks(
             ):
                 chunk_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-                # Проверка на дубликат
+                # Проверка на существование
                 cur.execute(
                     """
                     SELECT id FROM document_chunks 
@@ -216,8 +220,7 @@ def log_token_usage(
     balance_entries: Optional[Dict] = None,
 ) -> None:
     """
-    Логирует использование токенов + баланс от GigaChat.
-    Теперь баланс сохраняется корректно в колонку balance_entries.
+    Логирует использование токенов и баланс GigaChat.
     """
     try:
         conn = get_db_connection()
@@ -257,7 +260,7 @@ def log_chat_interaction(
     rag_context: Optional[str] = None,
     retrieved_chunks: Optional[list] = None,
 ):
-    """Логирует взаимодействие в чате, включая RAG-контекст."""
+    """Логирует одно взаимодействие пользователя с ассистентом."""
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
@@ -286,11 +289,9 @@ def log_chat_interaction(
             )
         conn.commit()
     except Exception as e:
-        logger.error(f"❌ Не удалось сохранить лог чата: {e}", exc_info=True)
-        st.warning("⚠️ Логирование не удалось")
+        st.warning(f"⚠️ Не удалось сохранить лог чата: {e}")
 
 
-# ====================== Экспортируемые функции ======================
 __all__ = [
     "get_db_connection",
     "init_vector_db",

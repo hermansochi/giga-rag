@@ -1,8 +1,9 @@
 """
-pages/2_Загрузить_файл.py
+pages/2_Upload_info.py
 
-Загрузка документов в RAG с батчевой генерацией эмбеддингов.
-Проверка существования чанков происходит ПЕРЕД генерацией эмбеддингов.
+Загрузка документов в RAG-систему с батчевой генерацией эмбеддингов.
+Проверка существования чанков происходит перед генерацией эмбеддингов.
+Поддерживаемые форматы получаются динамически из парсеров.
 """
 
 import streamlit as st
@@ -13,7 +14,7 @@ from typing import List
 
 from src.config import settings
 from src.gigachat import get_gigachat_client
-from src.document.parser import parse_document
+from src.document.parser import parse_document, get_supported_extensions
 from src.document.chunker import smart_chunk
 from src.models import Chunk
 
@@ -24,10 +25,11 @@ from minio import Minio
 st.set_page_config(page_title="Загрузка документов", page_icon="📤", layout="wide")
 st.title("📤 Загрузка документов в RAG")
 
-st.markdown("Поддерживаемые форматы: **PDF, TXT, CSV, JSON, JSONL**")
+# Получаем поддерживаемые расширения из парсера
+supported_extensions = get_supported_extensions()
+st.markdown(f"Поддерживаемые форматы: **{', '.join(supported_extensions)}**")
 
 
-# ====================== MinIO клиент ======================
 @st.cache_resource
 def get_minio_client():
     return Minio(
@@ -49,7 +51,6 @@ def ensure_bucket_exists():
         st.success(f"✅ Бакет `{bucket_name}` создан в MinIO")
 
 
-# ====================== Батчевая обработка с дедупликацией ======================
 def process_file(
     uploaded_file, document_type: str, chunk_size: int, overlap: int, batch_size: int
 ):
@@ -116,7 +117,6 @@ def process_file(
             f"**Пакет {i // batch_size + 1}:** проверяем {len(current_batch)} чанков"
         )
 
-        # --- ПРОВЕРКА СУЩЕСТВОВАНИЯ перед генерацией эмбеддингов ---
         texts_to_process = []
         metadata_to_process = []
 
@@ -132,7 +132,7 @@ def process_file(
                     (chunk_hash, settings.EMBEDDING_MODEL),
                 )
 
-                if not cur.fetchone():  # чанка нет в базе
+                if not cur.fetchone():
                     texts_to_process.append(chunk.text)
                     metadata_to_process.append(
                         {
@@ -145,7 +145,6 @@ def process_file(
                         }
                     )
 
-        # --- Если есть новые чанки — генерируем эмбеддинги батчем ---
         if texts_to_process:
             status_text.text(
                 f"Генерация эмбеддингов для пакета ({len(texts_to_process)} новых чанков)..."
@@ -157,7 +156,6 @@ def process_file(
                 )
                 batch_embeddings = [item.embedding for item in response.data]
 
-                # Сохраняем пакет
                 doc_id = save_chunks(
                     filename=filename,
                     chunks=texts_to_process,
@@ -171,7 +169,6 @@ def process_file(
 
             except Exception as e:
                 st.warning(f"Ошибка генерации эмбеддингов для пакета: {e}")
-                # Можно добавить fallback на одиночную генерацию, но пока пропускаем
 
         progress_bar.progress(min((i + batch_size) / len(all_chunks), 1.0))
 
@@ -184,7 +181,6 @@ def process_file(
     return saved_count
 
 
-# ====================== Боковая панель ======================
 with st.sidebar:
     st.header("Настройки загрузки")
 
@@ -210,10 +206,9 @@ with st.sidebar:
     st.caption(f"Эмбеддинг модель: **{settings.EMBEDDING_MODEL}**")
 
 
-# ====================== Основная логика ======================
 uploaded_files = st.file_uploader(
     "Выберите файлы",
-    type=["pdf", "txt", "text", "md", "csv", "json", "jsonl"],
+    type=get_supported_extensions(),   # ← теперь динамически
     accept_multiple_files=True,
 )
 

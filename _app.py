@@ -2,19 +2,21 @@
 _app.py
 
 Главная точка входа Streamlit-приложения.
+Выполняет инициализацию сессии, базы данных и глобальных настроек промптов.
 """
 
 import streamlit as st
+import uuid
+
 from src.config import settings
 from src.database import init_vector_db
-import uuid
+
 
 # --- Инициализация сессии ---
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 
-# --- Управление кастомным промптом ---
-# При старте берём промпт из settings, но позволим переопределить
+# Инициализация кастомных промптов из настроек
 if "custom_base_prompt" not in st.session_state:
     st.session_state.custom_base_prompt = settings.BASE_SYSTEM_PROMT
 
@@ -24,28 +26,29 @@ if "custom_rag_prompt" not in st.session_state:
 if "custom_rag_suffix" not in st.session_state:
     st.session_state.custom_rag_suffix = settings.RAG_PROMT_SUFFIX
 
-# Температуры
+# Инициализация температур
 if "custom_base_temperature" not in st.session_state:
     st.session_state.custom_base_temperature = settings.BASE_TEMPERATURE
 
 if "custom_rag_temperature" not in st.session_state:
     st.session_state.custom_rag_temperature = settings.RAG_TEMPERATURE
 
-# --- Инициализация БД ---
+
+# --- Инициализация базы данных ---
 if "db_fully_initialized" not in st.session_state:
     with st.spinner("Инициализация базы данных... 🛠️"):
         init_vector_db()
     st.session_state.db_fully_initialized = True
 
-# --- Заголовок ---
+
 st.title("🧠 RAG-система на GigaChat")
 st.markdown("### Интеллектуальный помощник с поддержкой документов")
 
-# --- Редактируемые настройки ---
+
+# --- Редактируемые настройки промптов ---
 with st.expander("⚙️ Настройки промптов и температур", expanded=False):
     col1, col2 = st.columns(2)
 
-    # Non-RAG System Prompt
     with col1:
         st.markdown("**Системный промпт (без RAG)**")
         base_prompt = st.text_area(
@@ -55,7 +58,6 @@ with st.expander("⚙️ Настройки промптов и температ
             key="edit_base_prompt",
         )
 
-    # RAG System Prompt
     with col2:
         st.markdown("**Системный промпт (с RAG)**")
         rag_prompt = st.text_area(
@@ -65,14 +67,12 @@ with st.expander("⚙️ Настройки промптов и температ
             key="edit_rag_prompt",
         )
 
-    # RAG Suffix
     rag_suffix = st.text_input(
-        "Дополнительный суффикс к вопросу в RAG (например, 'Дай краткий ответ')",
+        "Дополнительный суффикс к вопросу в RAG-режиме",
         value=st.session_state.custom_rag_suffix,
         key="edit_rag_suffix",
     )
 
-    # Температуры
     col3, col4 = st.columns(2)
     with col3:
         base_temp = st.slider(
@@ -100,11 +100,10 @@ with st.expander("⚙️ Настройки промптов и температ
         st.session_state.custom_base_temperature = base_temp
         st.session_state.custom_rag_temperature = rag_temp
 
-        st.success("✅ Настройки обновлены (действуют до перезагрузки)")
+        st.success("✅ Настройки обновлены (действуют до перезагрузки приложения)")
 
-        # Показываем, что нужно сделать для постоянного сохранения
         st.info("""
-        🔧 Чтобы сохранить настройки **навсегда**, добавьте в файл `.env`:
+        🔧 Чтобы сохранить настройки **навсегда**, добавьте следующие строки в файл `.env`:
         """)
         st.code(
             f"""
@@ -113,9 +112,10 @@ RAG_SYSTEM_PROMT={rag_prompt.strip()}
 RAG_PROMT_SUFFIX={rag_suffix.strip()}
 BASE_TEMPERATURE={base_temp}
 RAG_TEMPERATURE={rag_temp}
-        """.strip(),
+            """.strip(),
             language="env",
         )
+
 
 # --- Отображение текущих настроек ---
 st.info(f"""
@@ -125,10 +125,11 @@ st.info(f"""
 - Размерность эмбеддингов: **{settings.EMBEDDING_DIM}**
 - Системный промпт (без RAG): **{st.session_state.custom_base_prompt[:80]}...**
 - Системный промпт (с RAG): **{st.session_state.custom_rag_prompt[:80]}...**
-- Суффикс (с RAG): **{st.session_state.custom_rag_suffix}**
+- Суффикс RAG: **{st.session_state.custom_rag_suffix}**
 - Температура (без RAG): **{st.session_state.custom_base_temperature}**
 - Температура (с RAG): **{st.session_state.custom_rag_temperature}**
 - Поддерживаемые форматы: PDF, TXT, CSV, JSON, JSONL
 """)
+
 
 st.caption("Используйте боковое меню для перехода между страницами.")

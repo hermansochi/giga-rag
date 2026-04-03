@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "GigaEmbeddings-3B-2025-09"
     EMBEDDING_DIM: int = 2048
 
+    # Модели и пути к ним
+    CROSS_ENCODER_MODEL: str = "DiTy/cross-encoder-russian-msmarco"
+    CROSS_ENCODER_MODEL_PATH: str = "/app/model_data/cross_encoder"
+
+    SPACY_MODEL_NAME: str = "ru_core_news_md"
+    SPACY_MODEL_PATH: str = "/app/model_data/spacy/ru_core_news_md"
+
     # ==================== RAG ====================
     # Все возможные типы реранкинга
     RERANKER_TYPE: Literal[
@@ -22,7 +29,6 @@ class Settings(BaseSettings):
     ] = "none"            # По умолчанию — без реранкинга (безопасно)
     RERANK_CANDIDATES: int = 15
     RERANK_TOP_N: int = 5
-    CROSS_ENCODER_MODEL: str = "DiTy/cross-encoder-russian-msmarco"
 
     # ==================== PostgreSQL ====================
     POSTGRES_HOST: str = "db"

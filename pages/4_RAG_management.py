@@ -1,7 +1,8 @@
 """
 pages/4_Управление_RAG.py
 
-Страница управления RAG-системой: MinIO + таблицы БД + диагностика чанков.
+Страница управления RAG-системой.
+Включает работу с хранилищем MinIO, диагностику чанков и статистику таблиц базы данных.
 """
 
 import streamlit as st
@@ -14,12 +15,16 @@ import time
 from src.config import settings
 from src.database import get_db_connection
 
-st.set_page_config(page_title="Управление RAG", page_icon="⚙️", layout="wide")
+
+st.set_page_config(
+    page_title="Управление RAG",
+    page_icon="⚙️",
+    layout="wide"
+)
 
 st.title("⚙️ Управление RAG-системой")
 
 
-# ====================== МОДАЛЬНОЕ ОКНО УДАЛЕНИЯ ======================
 @st.dialog("⚠️ Подтверждение удаления")
 def delete_file_with_confirmation(minio_client, bucket_name: str, object_name: str):
     """Модальное окно подтверждения удаления файла."""
@@ -49,7 +54,7 @@ def delete_file_with_confirmation(minio_client, bucket_name: str, object_name: s
                 st.success(
                     f"✅ Файл `{object_name}` и все связанные чанки успешно удалены!"
                 )
-                time.sleep(1)
+
                 st.rerun()
 
             except S3Error as s3e:
@@ -62,7 +67,6 @@ def delete_file_with_confirmation(minio_client, bucket_name: str, object_name: s
             st.rerun()
 
 
-# ====================== ОСНОВНАЯ ЛОГИКА ======================
 st.subheader("📦 MinIO — Хранилище оригинальных файлов")
 
 try:
@@ -140,7 +144,7 @@ except Exception as e:
 
 st.divider()
 
-# ====================== ДИАГНОСТИКА ЧАНКОВ ======================
+# Диагностика чанков
 st.subheader("🔍 Диагностика чанков")
 
 try:
@@ -166,7 +170,7 @@ except Exception as e:
 
 st.divider()
 
-# ====================== ТАБЛИЦЫ БАЗЫ ДАННЫХ ======================
+# Таблицы базы данных
 st.subheader("📋 Таблицы базы данных")
 
 try:

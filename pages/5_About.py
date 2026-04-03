@@ -1,21 +1,27 @@
+"""
+pages/5_О_проекте.py
+
+Страница "О проекте".
+Отображает содержимое README.md из корня проекта.
+Пытается найти файл по нескольким возможным путям (для локальной разработки и Docker).
+"""
+
 import streamlit as st
 import os
 
+
 st.title("ℹ️ О проекте")
 
-# --- Определяем путь к README.md ---
-# Вариант 1: в той же директории, что и скрипт
+
+# Определяем возможные пути к README.md
 CURRENT_DIR = os.path.dirname(__file__)
 README_PATH = os.path.join(CURRENT_DIR, "..", "README.md")
-
-# Вариант 2: абсолютный путь (на случай, если сборка другая)
 ALTERNATIVE_PATH = "/app/README.md"
 
-# Пытаемся найти файл
 content = None
 
 for path in [README_PATH, ALTERNATIVE_PATH]:
-    path = os.path.normpath(path)  # нормализуем путь
+    path = os.path.normpath(path)
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -26,10 +32,10 @@ for path in [README_PATH, ALTERNATIVE_PATH]:
             st.error(f"❌ Ошибка чтения `{path}`: {e}")
             content = None
 
-# --- Отображаем результат ---
+# Отображаем результат
 if content:
-    st.markdown("---")  # разделитель
-    st.markdown(content, unsafe_allow_html=True)  # поддержка HTML, если есть
+    st.markdown("---")
+    st.markdown(content, unsafe_allow_html=True)
 else:
     st.warning("⚠️ Файл `README.md` не найден.")
     st.code("""

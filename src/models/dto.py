@@ -1,7 +1,8 @@
 """
 src/models/dto.py
 
-Data Transfer Objects — чистые структуры данных.
+Data Transfer Objects (DTO) — чистые неизменяемые структуры данных,
+используемые для передачи информации между слоями приложения.
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class DocumentChunk:
-    """Один чанк документа из векторной БД."""
+    """Чанк документа, полученный из векторной базы данных."""
 
     chunk_text: str
     filename: str
@@ -21,7 +22,7 @@ class DocumentChunk:
 
     @property
     def short_text(self) -> str:
-        """Короткая версия для источников (~350 символов)."""
+        """Короткая версия текста для блока источников (~350 символов)."""
         return (
             self.chunk_text[:350] + "..."
             if len(self.chunk_text) > 350
@@ -30,7 +31,7 @@ class DocumentChunk:
 
     @property
     def full_preview(self) -> str:
-        """Средняя версия для блока контекста (~450 символов)."""
+        """Средняя версия текста для блока контекста (~450 символов)."""
         return (
             self.chunk_text[:450] + "..."
             if len(self.chunk_text) > 450
@@ -39,7 +40,7 @@ class DocumentChunk:
 
     @classmethod
     def from_db_row(cls, row: Any) -> "DocumentChunk":
-        """Создаёт DocumentChunk из строки БД."""
+        """Создаёт DocumentChunk из строки результата запроса к БД."""
         if hasattr(row, "keys") and callable(getattr(row, "keys")):
             data = dict(row)
         else:
@@ -61,7 +62,7 @@ class DocumentChunk:
 
 @dataclass(frozen=True)
 class RerankCandidate:
-    """Кандидат для реранкинга."""
+    """Кандидат для процедуры реранкинга."""
 
     text: str
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -76,7 +77,7 @@ class RerankCandidate:
 
     @classmethod
     def from_document_chunk(cls, chunk: DocumentChunk) -> "RerankCandidate":
-        """Преобразует DocumentChunk в RerankCandidate."""
+        """Преобразует DocumentChunk в RerankCandidate для реранкинга."""
         return cls(
             text=chunk.chunk_text,
             metadata={
@@ -90,7 +91,7 @@ class RerankCandidate:
 
 @dataclass(frozen=True)
 class RerankedResult:
-    """Результат после реранкинга."""
+    """Результат после применения реранкинга."""
 
     text: str
     metadata: Dict[str, Any]
@@ -99,7 +100,7 @@ class RerankedResult:
 
 @dataclass(frozen=True)
 class ChatSource:
-    """Источник для отображения в UI."""
+    """Источник для отображения в пользовательском интерфейсе."""
 
     filename: str
     distance: float
@@ -109,7 +110,7 @@ class ChatSource:
 
 @dataclass(frozen=True)
 class ChatResponse:
-    """Финальный ответ для Streamlit."""
+    """Финальный ответ, возвращаемый в Streamlit."""
 
     answer: str
     sources: List[ChatSource]
@@ -125,10 +126,10 @@ class ChatResponse:
 
 @dataclass(frozen=True)
 class ParsedDocument:
-    """Результат парсинга одного файла."""
+    """Результат парсинга одного загруженного файла."""
 
     filename: str
-    content: str  # полный текст документа
+    content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     pages: Optional[List[str]] = None
     document_type: str = "unknown"
@@ -136,7 +137,7 @@ class ParsedDocument:
 
 @dataclass(frozen=True)
 class Chunk:
-    """Один готовый чанк после chunker."""
+    """Готовый чанк после работы chunker'а."""
 
     text: str
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -145,4 +146,5 @@ class Chunk:
 
     @property
     def short_text(self) -> str:
+        """Короткая версия текста (~350 символов)."""
         return self.text[:350] + "..." if len(self.text) > 350 else self.text

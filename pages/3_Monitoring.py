@@ -1,7 +1,8 @@
 """
 pages/3_Мониторинг.py
 
-Улучшенная страница мониторинга RAG-системы с вкладками.
+Улучшенная страница мониторинга RAG-системы.
+Использует вкладки для разделения информации по токенам, таблицам базы данных и истории чата.
 """
 
 import streamlit as st
@@ -13,14 +14,19 @@ from collections import defaultdict
 
 from src.database import get_db_connection
 
-st.set_page_config(page_title="Мониторинг", page_icon="📊", layout="wide")
+
+st.set_page_config(
+    page_title="Мониторинг",
+    page_icon="📊",
+    layout="wide"
+)
 
 st.title("📊 Мониторинг RAG-системы")
 
 
-# ====================== Вспомогательные функции ======================
 @st.cache_data(ttl=30)
 def get_token_logs(limit: int = 200) -> pd.DataFrame:
+    """Получает последние логи использования токенов."""
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute(
@@ -38,6 +44,7 @@ def get_token_logs(limit: int = 200) -> pd.DataFrame:
 
 @st.cache_data(ttl=60)
 def get_table_stats() -> pd.DataFrame:
+    """Получает статистику по всем таблицам базы данных."""
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute("""
@@ -63,7 +70,6 @@ def get_table_stats() -> pd.DataFrame:
     return pd.DataFrame(stats)
 
 
-# ====================== Основной интерфейс ======================
 tab1, tab2, tab3 = st.tabs(["📈 Токены и баланс", "📋 Таблицы БД", "💬 История чата"])
 
 with tab1:
@@ -96,13 +102,13 @@ with tab1:
         fig_tokens.update_layout(height=520)
         st.plotly_chart(fig_tokens, use_container_width=True)
 
-        # ====================== ГРАФИК БАЛАНСА ======================
+        # График баланса по моделям
         st.subheader("📉 Изменение баланса по моделям")
 
         balance_by_model = defaultdict(list)
 
         for _, row in df_tokens.iterrows():
-            if row["balance_entries"]:
+            if row.get("balance_entries"):
                 try:
                     data = row["balance_entries"]
                     if isinstance(data, str):
@@ -120,19 +126,18 @@ with tab1:
 
         if balance_by_model:
             for model_name, history in balance_by_model.items():
-                if not history:
-                    continue
-                df_model = pd.DataFrame(history)
-                fig = px.line(
-                    df_model,
-                    x="timestamp",
-                    y="value",
-                    title=f"Баланс модели: **{model_name}**",
-                    template="plotly_white",
-                    markers=True,
-                )
-                fig.update_layout(height=420)
-                st.plotly_chart(fig, use_container_width=True)
+                if history:
+                    df_model = pd.DataFrame(history)
+                    fig = px.line(
+                        df_model,
+                        x="timestamp",
+                        y="value",
+                        title=f"Баланс модели: **{model_name}**",
+                        template="plotly_white",
+                        markers=True,
+                    )
+                    fig.update_layout(height=420)
+                    st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Пока нет данных по балансу моделей.")
     else:

@@ -1,6 +1,15 @@
+"""
+src/gigachat.py
+
+Основной модуль взаимодействия с GigaChat.
+Содержит функции для генерации ответов (с RAG и без), векторного поиска,
+реранкинга чанков и формирования HTML-представления для Streamlit.
+"""
+
 from typing import List, Optional, Tuple, Dict, Any
 import time
 import html
+import traceback  # Добавлен для корректной работы find_relevant_chunks
 
 import streamlit as st
 from gigachat import GigaChat
@@ -11,7 +20,7 @@ from src.database import (
     get_db_connection,
     log_token_usage,
     log_chat_interaction,
-)  # ← вот так
+)
 from src.models import DocumentChunk, RerankCandidate, RerankedResult
 
 
@@ -46,7 +55,7 @@ def get_available_models() -> List[str]:
 
 
 def get_reranker_options() -> Dict[str, str]:
-    """Возвращает варианты реранкера для UI."""
+    """Возвращает варианты реранкера для отображения в UI."""
     return {
         "none": "Без реранкера (быстрее)",
         "llm": "LLM-реранкинг (через GigaChat)",
@@ -57,10 +66,7 @@ def get_reranker_options() -> Dict[str, str]:
 
 
 def find_relevant_chunks(query: str, top_k: int = 15) -> List[DocumentChunk]:
-    """Выполняет векторный поиск и возвращает список DocumentChunk.
-
-    Теперь используем DTO вместо сырых словарей — код стал чище и типобезопаснее.
-    """
+    """Выполняет векторный поиск и возвращает список DocumentChunk."""
     client = get_gigachat_client()
     try:
         embedding_model = getattr(settings, "EMBEDDING_MODEL", "Embeddings")
@@ -96,7 +102,6 @@ def find_relevant_chunks(query: str, top_k: int = 15) -> List[DocumentChunk]:
             st.info("ℹ️ По запросу ничего не найдено в базе документов.")
             return []
 
-        # ← Главное изменение: используем DTO
         return [DocumentChunk.from_db_row(row) for row in raw_rows]
 
     except Exception as e:
@@ -106,7 +111,7 @@ def find_relevant_chunks(query: str, top_k: int = 15) -> List[DocumentChunk]:
 
 
 def get_balance_info(client: GigaChat) -> Optional[Dict[str, Any]]:
-    """Получает баланс и преобразует в словарь."""
+    """Получает баланс и преобразует объект в словарь."""
     try:
         balance_obj = None
         if hasattr(client, "get_balance"):
@@ -174,13 +179,10 @@ def _get_simple_response(
 def _get_rag_response(
     client: GigaChat, prompt: str, relevant_chunks: List[DocumentChunk], model_name: str
 ) -> Tuple[str, int, int]:
-    """Генерация ответа с использованием RAG-контекста.
-    Использует DocumentChunk для формирования промпта.
-    """
+    """Генерация ответа с использованием RAG-контекста."""
     if not relevant_chunks:
         return "В базе документов пока нет информации по этому вопросу.", 0, 0
 
-    # Формируем контекст из DTO
     context_parts = [
         f"--- Источник [{i}] | {chunk.filename} | чанк {chunk.chunk_index} | dist {chunk.distance:.4f} ---\n"
         f"{chunk.full_preview}"
@@ -234,8 +236,9 @@ def generate_with_gigachat(
     reranker_type: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any]]:
     """
-    Главная функция генерации ответа.
-    Возвращает: (response_html: str, metrics: dict)
+    Главная функция генерации ответа от GigaChat.
+
+    Возвращает кортеж: (response_html: str, metrics: dict)
     """
     model_name = model_name or settings.GIGACHAT_MODEL
     client = get_gigachat_client()
@@ -252,19 +255,17 @@ def generate_with_gigachat(
         sources_html = ""
         context_details = ""
     else:
-        # 1. Векторный поиск
         relevant_chunks_raw: List[DocumentChunk] = find_relevant_chunks(
             prompt, settings.RERANK_CANDIDATES
         )
 
-        # 2. Подготовка кандидатов
         candidate_chunks: List[RerankCandidate] = [
             RerankCandidate.from_document_chunk(chunk) for chunk in relevant_chunks_raw
         ]
 
-        # 3. Реранкинг
         if reranker_type and reranker_type != "none":
-            from src.rag.reranker import rerank_chunks   # ← импорт внутри функции
+            from src.rag.reranker import rerank_chunks
+
             st.info(f"🔄 Применяю реранкинг: {reranker_type}")
 
             ranked_results: List[RerankedResult] = rerank_chunks(
@@ -287,7 +288,6 @@ def generate_with_gigachat(
         else:
             relevant_chunks = relevant_chunks_raw
 
-        # 4. Лог чанков
         retrieved_chunks_log = [
             {
                 "filename": chunk.filename,
@@ -298,7 +298,6 @@ def generate_with_gigachat(
             for chunk in relevant_chunks
         ]
 
-        # 5. Контекст
         context_parts = [
             f"--- Источник [{i}] | {chunk.filename} | чанк {chunk.chunk_index} | dist {chunk.distance:.4f} ---\n"
             f"{chunk.full_preview}"
@@ -312,12 +311,10 @@ def generate_with_gigachat(
             "\n\n".join(context_parts) + f"\n\nВопрос: {prompt}\n{rag_suffix}:"
         )
 
-        # 6. Генерация ответа
         answer, prompt_tokens, completion_tokens = _get_rag_response(
             client, prompt, relevant_chunks, model_name
         )
 
-        # 7. HTML-блоки
         sources_html = _build_sources_html(relevant_chunks)
         context_details = _build_context_details(
             full_context=full_context,
@@ -328,7 +325,6 @@ def generate_with_gigachat(
     duration = round(time.time() - start_time, 2)
     total_tokens = prompt_tokens + completion_tokens
 
-    # 8. Метрики HTML
     metrics_html = _build_metrics_html(
         duration, total_tokens, prompt_tokens, completion_tokens
     )
@@ -337,7 +333,6 @@ def generate_with_gigachat(
         f"{answer}\n\n{sources_html}\n{context_details}\n{metrics_html}".strip()
     )
 
-    # ====================== ЧИСТЫЕ МЕТРИКИ ======================
     metrics: Dict[str, Any] = {
         "total_tokens": total_tokens,
         "prompt_tokens": prompt_tokens,
@@ -352,7 +347,7 @@ def generate_with_gigachat(
 
 
 def _build_sources_html(chunks: List[DocumentChunk]) -> str:
-    """Expandable блок «Использованные источники» — в едином стиле с контекстом."""
+    """Формирует expandable блок «Использованные источники»."""
     if not chunks:
         return ""
 
@@ -387,7 +382,7 @@ def _build_context_details(
     reranked_chunks: Optional[List[DocumentChunk]] = None,
     reranker_type: Optional[str] = None,
 ) -> str:
-    """Expandable блок контекста в едином стиле."""
+    """Формирует expandable блок с контекстом, переданным в GigaChat."""
     if not full_context:
         return ""
 
@@ -430,7 +425,7 @@ def _build_context_details(
 def _build_metrics_html(
     duration: float, total_tokens: int, prompt_tokens: int, completion_tokens: int
 ) -> str:
-    """Формирует HTML-блок с метриками (время + токены)."""
+    """Формирует HTML-блок с метриками (время выполнения и токены)."""
     return f"""
 <div style='color:#666; font-size:0.78em; margin-top:14px; padding:10px; background:#f8f9fa; border-radius:8px;'>
     ⏱ Время: <b>{duration} сек</b><br>

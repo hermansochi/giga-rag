@@ -1,11 +1,13 @@
 """
-pages/1_Чат.py — Главный чат-интерфейс RAG-системы с чистыми метриками.
+pages/1_Чат.py
+
+Главный чат-интерфейс RAG-системы.
+Поддерживает режимы с RAG и без RAG, выбор модели и типа реранкинга.
 """
 
 import streamlit as st
 import time
 
-# Импорты из нашего проекта
 from src.gigachat import (
     generate_with_gigachat,
     get_available_models,
@@ -31,7 +33,6 @@ with st.sidebar:
     
     available_models: list[str] = get_available_models() or [settings.GIGACHAT_MODEL]
     
-    # Умный выбор модели по умолчанию
     default_index = 0
     try:
         if "GigaChat-2-Max" in available_models:
@@ -45,7 +46,6 @@ with st.sidebar:
         index=default_index
     )
     
-    # Выбор реранкинга показываем только при включённом RAG
     reranker_options = get_reranker_options()
     
     if use_rag:
@@ -95,7 +95,7 @@ if prompt := st.chat_input("Задайте вопрос..."):
 
     st.session_state.messages.append({"role": "assistant", "content": response_html})
 
-    # ====================== ЛОГИРОВАНИЕ ======================
+    # Логирование взаимодействия
     try:
         log_chat_interaction(
             user_message=prompt,
@@ -112,6 +112,5 @@ if prompt := st.chat_input("Задайте вопрос..."):
                 "page": "chat"
             }
         )
-
     except Exception as e:
         st.warning(f"⚠️ Не удалось сохранить лог чата: {e}")

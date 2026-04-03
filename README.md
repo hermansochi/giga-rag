@@ -36,11 +36,12 @@ cp .env.example .env
 Отредактируйте файл .env — обязательно укажите ваш GIGACHAT_API_KEY.
 
 - Создать VENV
-- Предзагрузить модель кросс-енкодера: python3 preload_model.py
+- Отредактиовать config.py под свои модели
+- Предзагрузить модели: python3 preload_model.py
 - Собрать и запустить: docker compose up -d --build
 - Первая сборка может занять длительное время
 
-После запуска основное приложение будет доступно по адресу:
+После запуска приложение будет доступно по адресу:
 → http://app.localhost
 → http://localhost:9001/login - UI MinIO
 → http://s3.localhost - MinIO API
@@ -57,5 +58,3 @@ cp .env.example .env
 🔮 Планы развития
 Продвинутый чанкинг с извлечением таблиц и структуры (Docling / LlamaParse)
 Query rewriting и multi-query retrieval
-
-Оценка проекта от GigaCode в агентном режиме:
