@@ -42,11 +42,11 @@ cp .env.example .env
 - Первая сборка может занять длительное время
 
 После запуска приложение будет доступно по адресу:
-→ [http://app.localhost] (http://app.localhost)
-→ [http://localhost:9001/login] (http://localhost:9001/login) - UI MinIO
-→ [http://s3.localhost] (ttp://s3.localhost) - MinIO API
-→ [http://pgadmin.localhost] (http://pgadmin.localhost) - UI PGAdmin
-→ [http://traefik.localhost] (http://traefik.localhost) - Traefik dashboard
+→ [http://app.localhost](http://app.localhost)
+→ [http://localhost:9001/login](http://localhost:9001/login) - UI MinIO
+→ [http://s3.localhost](ttp://s3.localhost) - MinIO API
+→ [http://pgadmin.localhost](http://pgadmin.localhost) - UI PGAdmin
+→ [http://traefik.localhost](http://traefik.localhost) - Traefik dashboard
 
 📁 Баги
 - Неправильная логика дедупдикации. Нужно просто проверять существование хеша по тексту чанка и модели эмбедера, если записей нет, только в этом случае генерировать новый эмбединг. 
